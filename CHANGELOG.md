@@ -47,6 +47,8 @@ says which runs change and why.
   the length from `--ticks N` or, with `--ticks 0`, the tick its session ended at. Missions get a trace and telemetry
   every 100 ticks, the economy and the audio log. The port plays them with `--mission`/`--difficulty`
   (marcelomgoncalves/outpost2 5.60).
+- `run.py --trace-zstd`: when the run ends, `trace.jsonl` becomes `trace.jsonl.zst` (zstd level 3, same content, verified
+  by reading it back before the plain file is removed). Off by default; without it nothing changes.
 
 ## 1.3.0 (2026-11-21)
 
