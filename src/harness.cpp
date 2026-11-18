@@ -2829,6 +2829,18 @@ void Quit(const char* why) {
     Log("script: WARN %u `packet` lines never ran (their cycles didn't hand the local player's slot to ProcessCommandPacket):%s",
         unsigned(g_packetDue.size()), ticks.c_str());
   }
+  // OP2H_UNLOAD_MISSION=1: call the mission's OnUnloadMission export (OPU 1.4.x's mission event; its argument is
+  // { structSize }), as OPU does when the game unloads a mission, which a run otherwise never reaches: it quits as
+  // soon as the mission ends, before the game goes back to the shell. For a mission whose cleanup lives there.
+  if (EnvInt("OP2H_UNLOAD_MISSION", 0) && g_started) {
+    const std::string name = cfg.mission.substr(cfg.mission.find_last_of("\\/") + 1);
+    const HMODULE m = GetModuleHandleA(name.c_str());
+    using OnUnloadFn = int(__cdecl*)(void*);
+    const auto onUnload = m ? reinterpret_cast<OnUnloadFn>(GetProcAddress(m, "OnUnloadMission")) : nullptr;
+    struct { size_t structSize; } args{ sizeof(size_t) };
+    if (onUnload) Log("unload: %s OnUnloadMission -> %d", name.c_str(), onUnload(&args));
+    else Log("unload: %s exports no OnUnloadMission", name.c_str());
+  }
   // OP2H_UNLOAD=1: unload the mission DLL first, so its DLL_PROCESS_DETACH runs with the game still in memory (the
   // termination below skips it). Some campaign missions write their carry-over for the next mission there,
   // e.g. when the game's end reason (0x56EB34) is MissionAccomplished.
