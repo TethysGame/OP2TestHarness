@@ -97,6 +97,8 @@ selftest` is `make check`; the module itself reads the same `OP2H_*` settings on
 | `--campaign FILE` | | start as a campaign mission with this carry-over (MissionResults): `key value` lines `food`, `common`, `rare`, `workers`, `scientists`, `kids`, `satellites`, `moraleLevel`, `morale`, `event`, `techLevel`, `mission` (the finished mission's number; default the DLL's minus one, as the game starts the next one), and `techs` followed by the completed topic ids. Older files without `techs` still start with no carried research |
 | `--unload` | `OP2H_UNLOAD=1` | unload the mission DLL just before the run quits, so its `DLL_PROCESS_DETACH` runs with the game still in memory (a run otherwise ends the process without it). Some campaign missions write their carry-over for the next mission there. The log says `unload: NAME freed N time(s)` |
 | | `OP2H_UNLOAD_MISSION=1` | call the mission's `OnUnloadMission` export (OPU 1.4.x's mission event) just before the run quits, as OPU does when the game unloads a mission; a run otherwise quits first. For a mission whose cleanup lives there. The log says `unload: NAME OnUnloadMission -> N` |
+| | `OP2H_ALL_UNITS=1` | unit lists (telemetry, trace, state, scans) also cover the players beyond the lobby, up to player 6, e.g. a mission's own enemy; a run otherwise lists only the lobby's players |
+| | `OP2H_MP_*` | lobby choices for a multiplayer start (`--players` 2-6), each unset by default: `OP2H_MP_DISASTERS`, `OP2H_MP_DAYNIGHT`, `OP2H_MP_MORALE_STEADY` (0/1), `OP2H_MP_VEHICLES` (initial vehicles 0-9), `OP2H_MP_RESOURCES` and `OP2H_MP_COLONY` (one digit per player: 0 high / 1 medium / 2 low resources; 1 Eden / 0 Plymouth). The default start has high resources, day and night on, morale steady, no initial vehicles and disasters per mission type (off for Land Rush and Last One Standing) |
 | | `OP2H_CRASHLOG=1` | write `crash.txt` beside the other outputs, from the moment the harness loads: how far start-up got (`stage:` lines), every fault the game raises (code, module and offset, registers, the code addresses on the stack) and the loaded modules. It handles nothing, so the game goes on or dies as it would. For a start-up crash that leaves no `harness.log` |
 | `--no-turbo` | | keep the game's frame limiter and render every frame (real time at `--speed`) |
 | `--presents` | | `present.log`: detail/minimap/command pane presents per game tick and per real second |
@@ -295,7 +297,8 @@ Script verbs for colony experiments (oracle scenarios `eco_*`, spec in `$ORACLE/
 5    cargo    @3 2 1000             # set a truck's cargo (CargoType, amount); `load`/`unload <building>`: the
                                     # building whose dock holds the truck (the load and unload handlers 0x424090/0x424240)
 5    poke     @2 0x1e 2 1200        # write a MapObject field (offset, size 1/2/4, value), e.g. damage
-1    peek     0x439A10 64           # log game memory as hex (up to 256 bytes): code as OPU patches it in memory
+1    peek     0x439A10 64           # log game memory as hex (up to 256 bytes): code as OPU patches it in memory;
+                                    # `peek *ADDR N` logs what the pointer at ADDR points to
 10   tech     0 5317                # _Player::MarkResearchComplete(techID) for player 0, as a mission grants a topic
                                     # (a topic not in the loaded tech tree is logged with the valid ids, not granted)
 10   doze     @0 38 36 41 38        # Robo-Dozer: bulldoze an inclusive rectangle (ctMoDoze, as its click sends it)

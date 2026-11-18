@@ -56,6 +56,12 @@ says which runs change and why.
   `_strdup(the mod folder)` and the start appends `\op2mod.dll` to that copy (`strcat`, 0x1000144D), 11 bytes past
   the block. Depending on the heap's layout (the environment moves it; an administrator window happened to miss) the
   game died in ntdll at start. The harness makes that copy long enough, and `harness.log` says so.
+- `OP2H_ALL_UNITS=1`: the telemetry, trace, state and unit scans also cover the players beyond the lobby, up to player
+  6 (a mission's own enemy). Off by default.
+- Lobby choices for a multiplayer start: `OP2H_MP_DISASTERS`, `OP2H_MP_DAYNIGHT`, `OP2H_MP_MORALE_STEADY` (0/1),
+  `OP2H_MP_VEHICLES` (initial vehicles 0-9), and one digit per player in `OP2H_MP_RESOURCES` (0 high, 1 medium, 2 low)
+  and `OP2H_MP_COLONY` (1 Eden, 0 Plymouth). Unset, the start is as before.
+- Script `peek *ADDRESS N`: logs the memory the pointer stored at ADDRESS points to (a mission's vector items).
 
 ## 1.0.0 (2026-11-10)
 

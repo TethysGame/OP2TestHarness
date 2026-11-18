@@ -187,6 +187,7 @@ const char* TypeName(MapID id) {
   return t ? t->GetCodeName() : "?";
 }
 
+bool g_allUnits = false;  // OP2H_ALL_UNITS: unit lists also cover the players beyond the lobby (up to player 6).
 bool g_eco = false;  // OP2H_ECO: economy telemetry (player colony state, building/vehicle internals). See ECONOMY.md.
 const char* ActionName(int a);
 int HighestObjectIndex();
@@ -255,9 +256,11 @@ void WritePlayerEco(FILE* f, const PlayerImpl* p) {
 }
 
 // Every player's structures, then vehicles, player by player (the order telemetry, traces and the unit
-// scans have always used).
+// scans have always used). With OP2H_ALL_UNITS the players beyond the lobby follow, to player 6 (e.g. a
+// mission's own enemy).
 template <class F> void ForEachPlayerUnit(F&& visit) {
-  for (int p = 0; p < g_gameImpl.numPlayers_; ++p) {
+  const int last = g_allUnits ? 7 : g_gameImpl.numPlayers_;
+  for (int p = 0; p < last; ++p) {
     for (Unit u : PlayerBuildingEnum(p)) visit(u);
     for (Unit u : PlayerVehicleEnum(p))  visit(u);
   }
@@ -550,7 +553,7 @@ void WriteTrace(int tick) {
     else if (u.IsLive()) WriteTraceUnit(f, first, u, int(i));
   }
   if (g_spawned.empty()) {  // No scenario spawns: trace every vehicle.
-    for (int p = 0; p < g_gameImpl.numPlayers_; ++p)
+    for (int p = 0, last = g_allUnits ? 7 : g_gameImpl.numPlayers_; p < last; ++p)
       for (Unit u : PlayerVehicleEnum(p)) WriteTraceUnit(f, first, u, -1);
   }
   fputc(']', f);
@@ -1483,8 +1486,14 @@ bool RunEcoCmd(const ScriptCmd& c, int tick) {
     else *reinterpret_cast<int*>(b) = value;
     return true;
   }
-  if (v == "peek") {  // peek <address> <bytes>: log game memory as hex, e.g. code as patched in memory (OPU, op2ext)
-    const uint8_t* b = reinterpret_cast<const uint8_t*>(uintptr_t(strtoul(arg(0).c_str(), nullptr, 0)));
+  if (v == "peek") {  // peek <address> <bytes>: log game memory as hex, e.g. code as patched in memory (OPU, op2ext);
+                      // peek *<address> <bytes>: the memory the pointer stored at <address> points to (a vector's items)
+    const bool indirect = !arg(0).empty() && arg(0)[0] == '*';
+    const uint8_t* b = reinterpret_cast<const uint8_t*>(uintptr_t(strtoul(arg(0).c_str() + (indirect ? 1 : 0), nullptr, 0)));
+    if (indirect) {
+      if (IsBadReadPtr(b, 4)) { Log("script: peek: bad address %s", arg(0).c_str());  return true; }
+      b = *reinterpret_cast<const uint8_t* const*>(b);
+    }
     const int size = std::min(num(1), 256);
     if (size <= 0) { Log("script: peek: needs a size of 1-256 bytes (got '%s')", arg(1).c_str());  return true; }
     if (IsBadReadPtr(b, size)) { Log("script: peek: bad address %s", arg(0).c_str());  return true; }
@@ -4232,9 +4241,23 @@ ibool __fastcall StartMissionHook(GameImpl* self, void*) {
       g_gsi.playerFlags[i].resources = 0;
       g_gsi.playerFlags[i].color = (i + 1) % 6;
     }
-    Log("multiplayer start: type %d max %d humans %d AIs %d, high resources, day/night on, morale steady on, "
+    // Opt-in lobby choices (the defaults are those above): OP2H_MP_DISASTERS, OP2H_MP_DAYNIGHT, OP2H_MP_MORALE_STEADY
+    // (0/1), OP2H_MP_VEHICLES (initial vehicles, 0-9), and one digit per player for OP2H_MP_RESOURCES (0 high, 1
+    // medium, 2 low) and OP2H_MP_COLONY (1 Eden, 0 Plymouth).
+    if (const int v = EnvInt("OP2H_MP_DISASTERS", -1); v >= 0) g_gsi.startupFlags.disastersEnabled = v != 0;
+    if (const int v = EnvInt("OP2H_MP_DAYNIGHT", -1); v >= 0) g_gsi.startupFlags.dayNightEnabled = v != 0;
+    if (const int v = EnvInt("OP2H_MP_MORALE_STEADY", -1); v >= 0) g_gsi.startupFlags.moraleSteady = v != 0;
+    if (const int v = EnvInt("OP2H_MP_VEHICLES", -1); v >= 0) g_gsi.startupFlags.numInitialVehicles = std::min(v, 9);
+    const std::string res = Env("OP2H_MP_RESOURCES"), colony = Env("OP2H_MP_COLONY");
+    for (size_t i = 0; i < 6; ++i) {
+      if (i < res.size() && res[i] >= '0' && res[i] <= '2') g_gsi.playerFlags[i].resources = res[i] - '0';
+      if (i < colony.size() && (colony[i] == '0' || colony[i] == '1')) g_gsi.playerFlags[i].isEden = colony[i] == '1';
+    }
+    Log("multiplayer start: type %d max %d humans %d AIs %d, resources %s, colonies %s, day/night %d, morale steady %d, "
         "disasters %d, initial vehicles %d, cheats %d, network bit %d", type, int(g_gsi.startupFlags.maxPlayers),
-        cfg.players, ai, int(g_gsi.startupFlags.disastersEnabled), int(g_gsi.startupFlags.numInitialVehicles),
+        cfg.players, ai, res.empty() ? "high" : res.c_str(), colony.empty() ? "default" : colony.c_str(),
+        int(g_gsi.startupFlags.dayNightEnabled), int(g_gsi.startupFlags.moraleSteady),
+        int(g_gsi.startupFlags.disastersEnabled), int(g_gsi.startupFlags.numInitialVehicles),
         int(g_gsi.startupFlags.cheatsEnabled), int(g_gsi.startupFlags.isMultiplayer));
     MissionManager::FreeModuleDesc(desc);
     if (ex) MissionManager::FreeModuleDescEx(ex);
@@ -4929,6 +4952,7 @@ void Start() {
   g_traceRaw     = EnvInt("OP2H_TRACE_RAW", 0) != 0;
   g_traceMap     = EnvInt("OP2H_TRACE_MAP", 0) != 0;
   g_eco          = EnvInt("OP2H_ECO", 0) != 0;
+  g_allUnits     = EnvInt("OP2H_ALL_UNITS", 0) != 0;
   cfg.width      = EnvInt("OP2H_WIDTH", 1024);
   cfg.height     = EnvInt("OP2H_HEIGHT", 768);
   g_record       = EnvInt("OP2H_RECORD", 0) != 0;
