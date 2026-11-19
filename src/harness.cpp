@@ -42,6 +42,9 @@ struct Config {
   int ticks = 0, shotEvery = 0, telemEvery = 100, speed = 10, seed = 1, difficulty = 1, width = 1024, height = 768;
   int players = 1;  // OP2H_PLAYERS: >1 selects the original's multiplayer defaults.
   int drawEvery = 0;  // Turbo only: render every N ticks (0 = only just before screenshots).
+  int mapEvery = 0;   // OP2H_MAP_EVERY: a whole-map image every N ticks (0 = off).
+  int mapPx = 8;      // OP2H_MAP_PX: its pixels a tile (1, 2, 4, 8, 16 or 32).
+  bool mapDaylight = true;  // OP2H_MAP_DAYLIGHT: draw the whole-map images in full daylight (0: as the game shows it).
   int traceEvery = 0;  // trace.jsonl sample interval (0 = off).
   bool turbo = true;
   bool presents = false;  // OP2H_PRESENTS: count pane presents per tick and per real second.
@@ -2667,7 +2670,7 @@ void WriteSessionState(int tick) {
 
 GameStartInfo g_gsi;
 constexpr int DrawLead = 4;  // Ticks rendered ahead of a capture (and at startup) so all panes are current.
-int  g_lastTick = -1, g_nextShot = DrawLead + 1, g_nextTelem = 0, g_nextTrace = 0;
+int  g_lastTick = -1, g_nextShot = DrawLead + 1, g_nextTelem = 0, g_nextTrace = 0, g_nextMap = DrawLead + 1;
 bool g_started = false;
 int64_t g_startTime = 0;
 int64_t Now()       { LARGE_INTEGER t;  QueryPerformanceCounter(&t);    return t.QuadPart; }
@@ -2815,6 +2818,184 @@ void ClosePresents() {
   LeaveCriticalSection(&g_presentLock);
 }
 
+// Whole-map images (OP2H_MAP_EVERY): the game draws the map only through the detail pane's view, and a view as big as
+// the map would overrun the viewport's fixed redraw bit vectors (Viewport +0x30, 100 dwords: 3,200 tiles). So the
+// view steps across the map in view-sized pieces: each is centred (DetailPane::CenterViewOn, 0x408210), drawn by the
+// pane's own draw (0x407E50) and copied from the pane's window; the pane's view position gives the piece's place. Then
+// the view goes back. All within one tick, so every piece shows the same game state. The image is the map's playable
+// area, shrunk to OP2H_MAP_PX pixels a tile (1-32, default 8) by averaging.
+void WriteBmp24(const char* path, const uint8_t* rows, int w, int h) {  // rows: top-down, 3 bytes a pixel (BGR)
+  const DWORD stride = ((w * 3 + 3) & ~3), imageSize = stride * h;
+  BITMAPINFOHEADER bh = { sizeof(BITMAPINFOHEADER), w, h, 1, 24, BI_RGB, imageSize };
+  BITMAPFILEHEADER fh = { 0x4D42, DWORD(sizeof(fh) + sizeof(bh) + imageSize), 0, 0, DWORD(sizeof(fh) + sizeof(bh)) };
+  FILE* f = fopen(path, "wb");
+  if (!f) return;
+  fwrite(&fh, sizeof(fh), 1, f);
+  fwrite(&bh, sizeof(bh), 1, f);
+  std::vector<uint8_t> line(stride, 0);
+  for (int y = h - 1; y >= 0; --y) {  // a BMP is stored bottom-up
+    memcpy(line.data(), rows + size_t(y) * w * 3, size_t(w) * 3);
+    fwrite(line.data(), stride, 1, f);
+  }
+  fclose(f);
+}
+
+// The detail pane's draw leaves values on the x87 register stack (the game's frame loop clears it between frames), so
+// drawing it several times in a row fills the stack: a full stack turns the next fild into NaN, _ftol (0x4C0E7C) into
+// 0, and UnitDrawList's distance division (0x4A2A2B, from CollectVisibleUnits 0x49EAF0) into a divide-by-zero fault.
+// Empty it before each draw, keeping the game's control word (its precision and rounding).
+void WriteState(int tick);
+
+void ResetX87() {
+  uint16_t cw = 0;
+#if defined(_MSC_VER)
+  __asm { fnstcw cw }
+  __asm { fninit }
+  __asm { fldcw cw }
+#else
+  __asm__ __volatile__("fnstcw %0
+	fninit
+	fldcw %0" : "+m"(cw));
+#endif
+}
+
+void TakeMapShot(int tick) {
+  DetailPane& pane = g_gameFrame.detailPane_;
+  HWND hWnd = pane.hWnd_;
+  RECT rc;
+  if (!hWnd || !GetClientRect(hWnd, &rc) || rc.right <= 0 || rc.bottom <= 0) {
+    Log("mapshot: tick %d: no detail pane to draw with", tick);
+    return;
+  }
+  const int vw = rc.right, vh = rc.bottom;
+  const int pad = PadTiles(), mapW = GameMap::GetWidth() * 32, mapH = GameMap::GetHeight() * 32;
+  const int x0 = pad * 32;  // the playable area's left edge in game pixels (a 512-wide map has no padding)
+  std::vector<uint8_t> full(size_t(mapW) * mapH * 3, 0);
+  const int oldX = pane.viewPosition_.left, oldY = pane.viewPosition_.top;
+  // Full daylight for these draws only (GameImpl::daylightEverywhere_): the flag is put back before the view returns
+  // and the tick goes on, so the game itself never sees it changed.
+  const ibool oldDaylight = g_gameImpl.daylightEverywhere_;
+  if (cfg.mapDaylight) g_gameImpl.daylightEverywhere_ = 1;
+  int maxX = 0, maxY = 0;  // how far the view reached: the game never shows the map's last row
+
+  HDC hdc = GetDC(hWnd), mem = CreateCompatibleDC(hdc);
+  BITMAPINFO bi = {};
+  bi.bmiHeader = { sizeof(BITMAPINFOHEADER), vw, -vh, 1, 24, BI_RGB };  // top-down
+  void* bits = nullptr;
+  HBITMAP bmp = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  HGDIOBJ old = SelectObject(mem, bmp);
+  const int stride = (vw * 3 + 3) & ~3;
+  int pieces = 0;
+  for (int cy = vh / 2;; cy += vh) {
+    const int py = std::min(cy, std::max(vh / 2, mapH - vh / 2));
+    for (int cx = vw / 2;; cx += vw) {
+      const int px = std::min(cx, std::max(vw / 2, mapW - vw / 2));
+      pane.CenterViewOn(x0 + px, py);
+      ResetX87();
+      pane.OnIdle();
+      BitBlt(mem, 0, 0, vw, vh, hdc, 0, 0, SRCCOPY);
+      GdiFlush();
+      // where the view really is (the pane clips it to the map): its top-left, in game pixels
+      const int sx = pane.viewPosition_.left - x0, sy = pane.viewPosition_.top;
+      for (int y = 0; y < vh; ++y) {
+        const int ty = sy + y;
+        if (ty < 0 || ty >= mapH) continue;
+        for (int x = 0; x < vw; ++x) {
+          const int tx = sx + x;
+          if (tx < 0 || tx >= mapW) continue;
+          memcpy(&full[(size_t(ty) * mapW + tx) * 3], static_cast<uint8_t*>(bits) + size_t(y) * stride + x * 3, 3);
+        }
+      }
+      ++pieces;
+      maxX = std::max(maxX, std::min(mapW, sx + vw));
+      maxY = std::max(maxY, std::min(mapH, sy + vh));
+      if (px >= mapW - vw / 2 || mapW <= vw) break;
+    }
+    if (py >= mapH - vh / 2 || mapH <= vh) break;
+  }
+  SelectObject(mem, old);
+  DeleteObject(bmp);
+  DeleteDC(mem);
+  ReleaseDC(hWnd, hdc);
+  // the view back where it was, as the game lit it
+  g_gameImpl.daylightEverywhere_ = oldDaylight;
+  pane.CenterViewOn(oldX + vw / 2, oldY + vh / 2);
+  ResetX87();
+  pane.OnIdle();
+
+  // shrink to cfg.mapPx pixels a tile by averaging each block
+  const int f = 32 / cfg.mapPx, ow = maxX / f, oh = maxY / f;
+  std::vector<uint8_t> out(size_t(ow) * oh * 3);
+  for (int y = 0; y < oh; ++y)
+    for (int x = 0; x < ow; ++x)
+      for (int c = 0; c < 3; ++c) {
+        unsigned sum = 0;
+        for (int dy = 0; dy < f; ++dy)
+          for (int dx = 0; dx < f; ++dx) sum += full[(size_t(y * f + dy) * mapW + x * f + dx) * 3 + c];
+        out[(size_t(y) * ow + x) * 3 + c] = uint8_t(sum / (f * f));
+      }
+  char path[MAX_PATH * 2];
+  snprintf(path, sizeof(path), "%s\\map_%07d.bmp", cfg.out.c_str(), tick);
+  WriteBmp24(path, out.data(), ow, oh);
+  Log("mapshot: tick %d: %d pieces, %dx%d px (%d a tile)%s", tick, pieces, ow, oh, cfg.mapPx, cfg.mapDaylight ? ", daylight" : "");
+  WriteState(tick);
+}
+
+// The game state each whole-map image shows, for drawing it without the game (OP2Imager and the like):
+// `state_<tick>.json`. File coordinates and pixels (internal x less the map's padding); `tiles` and `cells` are the
+// playable area row by row (TileData's graphic index and cell type); `objects` every live map object that isn't a
+// weapon's fire: units, structures, beacons (with ore and yield), wreckage, disasters.
+void WriteState(int tick) {
+  char path[MAX_PATH * 2];
+  snprintf(path, sizeof(path), "%s\\state_%07d.json", cfg.out.c_str(), tick);
+  FILE* f = fopen(path, "w");
+  if (!f) return;
+  const int w = GameMap::GetWidth(), h = GameMap::GetHeight(), pad = PadTiles();
+  const std::string dll = cfg.mission.substr(cfg.mission.find_last_of("\\/") + 1);
+  const HMODULE m = GetModuleHandleA(dll.c_str());
+  const char* mapName = m ? reinterpret_cast<const char*>(GetProcAddress(m, "MapName")) : nullptr;
+  std::string map = mapName ? mapName : "";
+  for (char& c : map) if (c == '"' || c == '\\' || uint8_t(c) < 0x20) c = '_';
+  fprintf(f, "{\"tick\":%d,\"mark\":%d,\"mission\":\"%s\",\"map\":\"%s\",\"width\":%d,\"height\":%d,\"padding\":%d,"
+             "\"daylight\":%d,\"players\":[", tick, tick / 100, dll.c_str(), map.c_str(), w, h, pad,
+          int(g_gameImpl.daylightEverywhere_ != 0));
+  for (int i = 0; i < g_gameImpl.numPlayers_; ++i) {
+    const PlayerImpl* p = g_gameImpl.GetPlayer(i);
+    fprintf(f, "%s{\"id\":%d,\"colour\":%d,\"eden\":%d,\"human\":%d}", i ? "," : "", i, int(p->colorType_),
+            int(p->isEden_ != 0), int(p->isHuman_ != 0));
+  }
+  for (const char* key : { "tiles", "cells" }) {
+    fprintf(f, "],\"%s\":[", key);
+    for (int y = 0; y < h; ++y)
+      for (int x = 0; x < w; ++x) {
+        const uint32_t t = GameMap::GetImpl()->Tile(x + pad, y).u32All;
+        fprintf(f, "%s%u", (x | y) ? "," : "", key[0] == 't' ? (t >> 5) & 0x7FF : t & 0x1F);
+      }
+  }
+  fputs("],\"objects\":[", f);
+  MapImpl* mapImpl = MapImpl::GetInstance();
+  bool first = true;
+  for (size_t i = 1; i < mapImpl->MaxNumUnits(); ++i) {
+    const MapObject* mo = MapObject::GetInstance(int(i));
+    if (!mo || !mo->IsLive()) continue;
+    if (const int t = int(mo->GetTypeID()); (mo->flags_ & MoFlagEntChild) && t >= int(MapID::AcidCloud) && t <= int(MapID::BFG))
+      continue;  // a weapon's fire
+    fprintf(f, "%s{\"i\":%d,\"type\":\"%s\",\"owner\":%d,\"x\":%d,\"y\":%d,\"rot\":%d,\"damage\":%d,\"cargo\":%u",
+            first ? "" : ",", int(i), TypeName(mo->GetTypeID()), int(mo->ownerNum_), mo->pixelX_ - pad * 32,
+            mo->pixelY_, int(mo->rotation_), int(mo->damage_), unsigned(mo->cargo_));
+    if (mo->GetTypeID() == MapID::CargoTruck)
+      fprintf(f, ",\"truck\":[%d,%d]", int(mo->truckCargoType_), int(mo->truckCargoAmount_));
+    if (mo->GetTypeID() == MapID::MiningBeacon) {  // its ore (0 common, 1 rare), bar yield (0 three, 1 two, 2 one) and variant
+      const auto* b = static_cast<const MapObj::MiningBeacon*>(mo);
+      fprintf(f, ",\"ore\":%d,\"bar\":%d,\"variant\":%d", int(b->mineType_), int(b->mineYield_), b->mineVariant_);
+    }
+    fputc('}', f);
+    first = false;
+  }
+  fputs("]}\n", f);
+  fclose(f);
+}
+
 void TakeShot(int tick) {
   char path[MAX_PATH * 2];
   snprintf(path, sizeof(path), "%s\\shot_%07d.bmp", cfg.out.c_str(), tick);
@@ -2827,6 +3008,7 @@ void Quit(const char* why) {
   WriteTelemetry(g_gameImpl.tick_);
   WriteTrace(g_gameImpl.tick_);
   if (cfg.shotEvery > 0) TakeShot(g_gameImpl.tick_);
+  if (cfg.mapEvery > 0) TakeMapShot(g_gameImpl.tick_);
   WriteSessionState(g_gameImpl.tick_);
   if (g_record) {
     g_recEnd = "# end of the recording: tick " + std::to_string(g_gameImpl.tick_) + ", " + why;
@@ -4063,6 +4245,7 @@ bool WantDraw(int tick) {
   if (tick <= Lead) return true;  // The panes must render at least once before drawing can be skipped safely.
   if (cfg.drawEvery > 0 && tick % cfg.drawEvery >= cfg.drawEvery - Lead) return true;
   if (cfg.shotEvery > 0 && (g_nextShot - tick <= Lead || (cfg.ticks > 0 && cfg.ticks - tick <= Lead))) return true;
+  if (cfg.mapEvery > 0 && (g_nextMap - tick <= Lead || (cfg.ticks > 0 && cfg.ticks - tick <= Lead))) return true;
   for (size_t i = g_scriptPos; i < g_script.size() && g_script[i].tick - tick <= Lead; ++i)
     if (g_script[i].verb == "shot" || IsInputVerb(g_script[i].verb) || (g_inputUsed && g_script[i].verb == "view"))
       return true;
@@ -4144,6 +4327,7 @@ void __fastcall GameCycleHook(GameImpl* self, void*) {
   if (cfg.telemEvery > 0 && tick >= g_nextTelem) { WriteTelemetry(tick);  g_nextTelem = (tick / cfg.telemEvery + 1) * cfg.telemEvery; }
   if (cfg.traceEvery > 0 && tick >= g_nextTrace) { WriteTrace(tick);      g_nextTrace = (tick / cfg.traceEvery + 1) * cfg.traceEvery; }
   if (cfg.shotEvery  > 0 && tick >= g_nextShot)  { TakeShot(tick);        g_nextShot  = (tick / cfg.shotEvery  + 1) * cfg.shotEvery;  }
+  if (cfg.mapEvery   > 0 && tick >= g_nextMap)   { TakeMapShot(tick);     g_nextMap   = (tick / cfg.mapEvery   + 1) * cfg.mapEvery;   }
   SessionTick(tick);
   if (!g_saveLoadDue.empty()) {
     g_loaded = false;
@@ -4936,6 +5120,10 @@ void Start() {
   cfg.checkpoint = Env("OP2H_CHECKPOINT");
   cfg.ticks     = EnvInt("OP2H_TICKS", 0);
   cfg.shotEvery  = EnvInt("OP2H_SHOT_EVERY", 0);
+  cfg.mapEvery   = EnvInt("OP2H_MAP_EVERY", 0);
+  cfg.mapPx      = EnvInt("OP2H_MAP_PX", 8);
+  cfg.mapDaylight = EnvInt("OP2H_MAP_DAYLIGHT", 1) != 0;
+  if (cfg.mapPx < 1 || cfg.mapPx > 32 || (cfg.mapPx & (cfg.mapPx - 1))) cfg.mapPx = 8;  // a power of two, 32 at most
   cfg.telemEvery = EnvInt("OP2H_TELEM_EVERY", 100);
   cfg.speed      = EnvInt("OP2H_SPEED", 10);
   cfg.seed       = EnvInt("OP2H_SEED", 1);

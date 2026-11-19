@@ -82,6 +82,9 @@ selftest` is `make check`; the module itself reads the same `OP2H_*` settings on
 | `--trace-from TICK` | 0 | no `trace.jsonl` lines before TICK, rounded up to a multiple of `--trace-every` (so the lines kept are those a full trace has), and the last tick as always: a full per-tick `--trace-raw` trace of a long run reaches 500 MB |
 | `--trace-raw` | | add raw MapObject (0x80) and PathContext (0xD4) bytes as hex to each trace unit, and to each `ents` entry its animation, frame and raw MapObject bytes (`[..., px, py, anim, frame, "raw"]`; with `--draw-every 1` the animation and frame are what was drawn, e.g. a structure a ConVec builds) |
 | `--screenshot-every N` | 0 (off) | PNG at tick 5, then every multiple of N, plus one at the end |
+| `--map-every N` | 0 (off) | a whole-map image (`map_<tick>.png`) and the state it shows (`state_<tick>.json`) at tick 5, then every multiple of N, plus one at the end (see "Whole-map images") |
+| `--map-px N` | 8 | the whole-map images' pixels a tile: 1, 2, 4, 8, 16 or 32 (the game's own size) |
+| `--map-night` | | draw the whole-map images lit as the game shows them; by default they are in full daylight |
 | `--telemetry-every N` | 100 | JSONL record at tick 1, then every multiple of N, plus one at the end. 0 = off |
 | `--script FILE` | | scripted commands, see below |
 | `--bot DLL` | | bot DLL called every tick, see below |
@@ -173,6 +176,8 @@ The exit status is 0 when the run reached its tick limit or the mission ended.
   `radius`, `indirect` = type +0x250), and `cells`: the cell type of every tile as the running game sees it, in file
   coordinates, row-major.
 - `shot_<tick>.png`: the game window's client area.
+- `map_<tick>.png` and `state_<tick>.json` (with `--map-every`): the whole map as the game draws it, and the state it
+  shows (see "Whole-map images").
 - `present.log` (with `--presents`): one JSON object per game tick and per real second. Tick records count the detail,
   minimap and command surfaces' presents; second records add the interval's `ms`, tick delta and ending tick. The hook is
   the shared DIB present method 0x4A9410 (BitBlt/StretchDIBits), filtered by the three panes' surface pointers.
@@ -225,6 +230,31 @@ beyond the orders (`disaster`, `earthwork`, `repair`, `damage`, `scatter`, `eco`
 `wrap` (512) lets the area run past a wrapping map's seam. A diverging run whose script names a dead spawn after a
 line's first word (an order that reached whatever took the dead unit's index) is played again without those lines
 (`dropped` in summary.jsonl). Templates: colony, skirmish, seam, choke, warfare, colony_stress, edges.
+
+## Whole-map images
+
+`--map-every N` (`OP2H_MAP_EVERY`) adds an image of the whole map, in the game's own drawing, to a run: at tick 5,
+then every multiple of N, and at the end.
+
+- **How.** The game draws the map only through the detail pane's view, and a view as big as the map would overrun the
+  viewport's fixed redraw bit vectors (`Viewport` +0x30, 100 dwords, 3,200 tiles): the reason a huge game window
+  fails. So the harness steps the view across the map in view-sized pieces within one tick: each is centred
+  (`DetailPane::CenterViewOn` 0x408210), drawn by the pane (0x407E50) and copied, placed by the pane's view position;
+  then the view goes back. The pane's draw leaves values on the x87 register stack (the frame loop clears it between
+  frames), so the stack is emptied before each piece, keeping the game's control word: a full stack makes
+  `UnitDrawList`'s distance division (0x4A2A2B) divide by zero.
+- **Light.** In full daylight by default (`GameImpl::daylightEverywhere_` set for these draws only and put back before
+  the tick goes on); `--map-night` (`OP2H_MAP_DAYLIGHT=0`) keeps the game's own light.
+- **Size.** The playable area as the game can show it (its last row is never in view), averaged down to `--map-px`
+  (`OP2H_MAP_PX`) pixels a tile: 8 by default (a 128x64 map is 1024x504), 32 for the game's own size.
+- **No effect on the game.** Only drawing and the view change, and both are put back: a run's telemetry is
+  byte-identical with and without map images.
+- **`state_<tick>.json`**, beside each image: `tick`, `mark`, `mission`, `map` (the DLL's `MapName`), `width`, `height`,
+  `padding`, `daylight`, `players` (`id`, `colour`, `eden`, `human`), `tiles` and `cells` (each playable tile's graphic
+  index and cell type, row by row in file coordinates) and `objects`: every live map object but a weapon's fire, as
+  `i` (object index), `type`, `owner`, `x`, `y` (pixels, file coordinates), `rot` (0-255), `damage`, `cargo` (the raw
+  weapon/kit/truck field), plus `truck` [cargo type, amount] for Cargo Trucks and `ore` (0 common, 1 rare), `bar` (0
+  three, 1 two, 2 one) and `variant` for mining beacons. Enough to draw the map without the game.
 
 ## Mouse and keyboard input
 

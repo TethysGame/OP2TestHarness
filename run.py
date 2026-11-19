@@ -295,6 +295,10 @@ def main() -> int:
     ap.add_argument("--ticks", type=int, help="stop after this game tick (100 ticks = 1 mark); 0 = never. "
                     "Default 3000, or the scenario's ticks")
     ap.add_argument("--screenshot-every", type=int, default=0, metavar="N", help="screenshot every N ticks (0 = off)")
+    ap.add_argument("--map-every", type=int, default=0, metavar="N",
+                    help="a whole-map image and its state_<tick>.json every N ticks (0 = off)")
+    ap.add_argument("--map-px", type=int, default=8, metavar="N", help="the whole-map images' pixels a tile: 1-32")
+    ap.add_argument("--map-night", action="store_true", help="draw the whole-map images lit as the game shows them")
     ap.add_argument("--telemetry-every", type=int, metavar="N",
                     help="telemetry every N ticks (0 = off); default 100, or the scenario's telemetryEvery")
     ap.add_argument("--trace-every", type=int, metavar="N",
@@ -440,6 +444,9 @@ def main() -> int:
                OP2H_OUT=win_path(out),
                OP2H_TICKS=str(args.ticks),
                OP2H_SHOT_EVERY=str(args.screenshot_every),
+               OP2H_MAP_EVERY=str(args.map_every),
+               OP2H_MAP_PX=str(args.map_px),
+               OP2H_MAP_DAYLIGHT="0" if args.map_night else "1",
                OP2H_TELEM_EVERY=str(args.telemetry_every),
                OP2H_SPEED=str(args.speed),
                OP2H_TURBO="0" if args.no_turbo else "1",

@@ -31,6 +31,9 @@ says which runs change and why.
 ## Unreleased
 
 **Added** (MINOR: every existing recording replays identically)
+- `--map-every N` (`OP2H_MAP_EVERY`), `--map-px N`, `--map-night`: a whole-map image in the game's own drawing and
+  `state_<tick>.json`, the state it shows, every N ticks (README.md "Whole-map images"). A run's telemetry is the
+  same with and without them.
 - `netgame.py --lobby-chat "HOST|JOINER"`: the host and the first joiner chat in GAME SETTINGS once every joiner is
   ready; each machine shoots and dumps its lobby after each line.
 - `netgame.py --join-ticks T`: the first joiner plays only to tick T (its script leaves the game there: End Mission, a

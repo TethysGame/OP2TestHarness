@@ -3,7 +3,7 @@
   python -I windows/run_win.py setup [--from "C:\\...\\Outpost 2"] [--game DIR]
       Copies the game (without movies and OPU backups) to a private folder, installs build\\win\\harness.dll and
       zScenario.dll into its OPU\\Harness and registers the module in its OPU\\outpost2.ini. Run again after a rebuild.
-  python -I windows/run_win.py run SCENARIO.json OUT_DIR [--game DIR] [--shot-every N] [--no-turbo] [--timeout S]
+  python -I windows/run_win.py run SCENARIO.json OUT_DIR [--game DIR] [--shot-every N] [--map-every N] [--no-turbo] [--timeout S]
                                 [--bot DLL]
       Writes the harness's outputs (trace.jsonl, telemetry.jsonl, gamedata.json, harness.log, shot_*.png,
       summary.json) to OUT_DIR. Compare with op2-rs: op2-inspect compare --scenario SCENARIO.json --oracle OUT_DIR
@@ -82,14 +82,18 @@ def setup(source: Path, game: Path) -> None:
 
 
 def to_png(out: Path) -> int:
-    """BMP -> PNG through System.Drawing (no PIL needed)."""
-    bmps = sorted(out.glob("shot_*.bmp"))
-    if bmps:
-        ps = "Add-Type -AssemblyName System.Drawing; " + "; ".join(
-            f"$i=[System.Drawing.Image]::FromFile('{b}'); $i.Save('{b.with_suffix('.png')}', "
-            f"[System.Drawing.Imaging.ImageFormat]::Png); $i.Dispose(); Remove-Item '{b}'" for b in bmps)
+    """BMP -> PNG through System.Drawing (no PIL needed): the screenshots and the whole-map images. Returns the number
+    of screenshots."""
+    shots = len(list(out.glob("shot_*.bmp")))
+    if any(out.glob("shot_*.bmp")) or any(out.glob("map_*.bmp")):
+        # One loop over the folder, not a command per file: a long run's list overflows the command line.
+        ps = ("Add-Type -AssemblyName System.Drawing; "
+              rf"Get-ChildItem -LiteralPath '{out}' -File | Where-Object {{ $_.Name -match '^(shot|map)_.*\.bmp$' }} | "
+              "ForEach-Object { $i=[System.Drawing.Image]::FromFile($_.FullName); "
+              "$i.Save([IO.Path]::ChangeExtension($_.FullName, '.png'), [System.Drawing.Imaging.ImageFormat]::Png); "
+              "$i.Dispose(); Remove-Item -LiteralPath $_.FullName }")
         subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=False)
-    return len(bmps)
+    return shots
 
 
 def run_scenario(a) -> int:
@@ -114,6 +118,8 @@ def run_scenario(a) -> int:
                OP2H_TRACE_EVERY=str(scn.get("traceEvery", 1)), OP2H_TELEM_EVERY=str(scn.get("telemetryEvery", 100)),
                OP2H_TRACE_MAP="1" if scn.get("traceMap") else "0", OP2H_ECO="1" if scn.get("eco") else "0",
                OP2H_AUDIO="1" if scn.get("audio") else "0", OP2H_SHOT_EVERY=str(a.shot_every),
+               OP2H_MAP_EVERY=str(getattr(a, "map_every", 0)), OP2H_MAP_PX=str(getattr(a, "map_px", 8)),
+               OP2H_MAP_DAYLIGHT="0" if getattr(a, "map_night", False) else "1",
                OP2H_TURBO="0" if a.no_turbo else "1", OP2H_SPEED="10", OP2H_WIDTH="1024", OP2H_HEIGHT="768")
     if getattr(a, "bot", None):
         env["OP2H_BOT"] = str(a.bot.resolve())
@@ -210,6 +216,10 @@ def main() -> int:
     r.add_argument("out", type=Path)
     r.add_argument("--game", type=Path, default=DEFAULT_GAME, help="the private copy")
     r.add_argument("--shot-every", type=int, default=0, metavar="N", help="screenshot every N ticks (0 = off)")
+    r.add_argument("--map-every", type=int, default=0, metavar="N",
+                    help="a whole-map image and its state_<tick>.json every N ticks (0 = off)")
+    r.add_argument("--map-px", type=int, default=8, metavar="N", help="the whole-map images' pixels a tile: 1-32")
+    r.add_argument("--map-night", action="store_true", help="draw the whole-map images lit as the game shows them")
     r.add_argument("--no-turbo", action="store_true", help="real time at full game speed, to watch it")
     r.add_argument("--timeout", type=float, default=600, help="wall-clock seconds before the game is killed")
     r.add_argument("--bot", type=Path, help="bot DLL exporting HarnessBotTick(int tick), called every tick")
