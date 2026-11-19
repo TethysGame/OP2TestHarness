@@ -242,19 +242,41 @@ then every multiple of N, and at the end.
   (`DetailPane::CenterViewOn` 0x408210), drawn by the pane (0x407E50) and copied, placed by the pane's view position;
   then the view goes back. The pane's draw leaves values on the x87 register stack (the frame loop clears it between
   frames), so the stack is emptied before each piece, keeping the game's control word: a full stack makes
-  `UnitDrawList`'s distance division (0x4A2A2B) divide by zero.
+  `UnitDrawList`'s distance division (0x4A2A2B) divide by zero. The pane's draw can also move the view a few pixels on
+  its own, leaving a strip of the piece undrawn: the harness then centres it again and draws the piece again (up to
+  four times), and the log says so ("the view moved ... while drawing").
 - **Light.** In full daylight by default (`GameImpl::daylightEverywhere_` set for these draws only and put back before
   the tick goes on); `--map-night` (`OP2H_MAP_DAYLIGHT=0`) keeps the game's own light.
 - **Size.** The playable area as the game can show it (its last row is never in view), averaged down to `--map-px`
   (`OP2H_MAP_PX`) pixels a tile: 8 by default (a 128x64 map is 1024x504), 32 for the game's own size.
-- **No effect on the game.** Only drawing and the view change, and both are put back: a run's telemetry is
-  byte-identical with and without map images.
+- **No effect on the game.** Only drawing and the view change, and both are put back; the draw hooks behind `views`
+  only record their calls. A run's telemetry is byte-identical with and without map images.
 - **`state_<tick>.json`**, beside each image: `tick`, `mark`, `mission`, `map` (the DLL's `MapName`), `width`, `height`,
-  `padding`, `daylight`, `players` (`id`, `colour`, `eden`, `human`), `tiles` and `cells` (each playable tile's graphic
-  index and cell type, row by row in file coordinates) and `objects`: every live map object but a weapon's fire, as
-  `i` (object index), `type`, `owner`, `x`, `y` (pixels, file coordinates), `rot` (0-255), `damage`, `cargo` (the raw
-  weapon/kit/truck field), plus `truck` [cargo type, amount] for Cargo Trucks and `ore` (0 common, 1 rare), `bar` (0
-  three, 1 two, 2 one) and `variant` for mining beacons. Enough to draw the map without the game.
+  `padding`, `daylight`, `px` (the image's pixels a tile), `shown` (the image's width and height), `animCounter` (the
+  counter animated tiles take their frame from, 0x56EB1C), `players` (`id`, `colour`, `eden`, `human`), `tiles` and
+  `cells` (each playable tile's graphic index and cell type, row by row in file coordinates), `objects` and `views`.
+  - `objects`: every live map object but a weapon's fire, as `i` (object index), `type`, `owner`, `x`, `y` (pixels,
+    file coordinates), `rot` (0-255), `damage`, `cargo` (the raw weapon/kit/truck field), `anim` and `frame` (the
+    animation it shows and its frame; the game numbers animations from 101, so `anim` is op2_art.prt's animation
+    index + 101), `flags`, plus `truck` [cargo type, amount] for Cargo Trucks and `ore` (0 common, 1 rare), `bar` (0
+    three, 1 two, 2 one) and `variant` for mining beacons.
+  - `views`: what the game drew, piece by piece (`OP2H_MAP_DRAWS=0` leaves it and `viewSize` out), and `viewSize`, the
+    pieces' width and height: the image is each piece copied whole over the ones before it, so a sprite a piece culls
+    at its edge stays cut off there. Each piece has `left` and `top` (the piece's top-left in game pixels, padding
+    included) and `draws` in the game's order. A sprite, six numbers, from the viewport's frame draw (0x403F20), is
+    (animation, frame, x, y, colour, light column): the animation numbered as `anim`, x and y the object's pixel within
+    the piece, the colour -1 for the palette as stored or the owner in its low 4 bits (a structure's has flags above
+    them). A laser, from the surface's line draw (0x41EA10), is (-1, colour, x1, y1, x2, y2); a
+    microwave, from its dashed line draw (0x41EE00), is (-2, colour, x1, y1, x2, y2, pattern, rotation). A piece with
+    a line has `clip`, the surface's clip rectangle the line was clipped to.
+- **Drawing it again.** A state with `views` is enough to draw the same pixels without the game: OP2Imager does it
+  (and `OP2Imager --compare` checks two images pixel for pixel).
+  The game draws into a 15-bit surface (5 bits a channel, widened back to 8 by repeating the top bits); a sprite
+  colour lands truncated to 5 bits, a shadow pixel darkens each channel `c` to `(c >> 1) + (c >> 2)`, an animated tile
+  shows frame `(animCounter / (delay + 1)) % (count + 1)`, and a laser is a Bresenham line two pixels thick, its colour
+  ORed in, after a Cohen-Sutherland clip (0x41E560). A microwave's line steps the same way but draws only where its
+  dash pattern (rotated left by `rotation`, then a bit a step) has a 1, overwriting with its colour less 3 for each
+  drawn step since the last gap.
 
 ## Mouse and keyboard input
 

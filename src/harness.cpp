@@ -45,6 +45,7 @@ struct Config {
   int mapEvery = 0;   // OP2H_MAP_EVERY: a whole-map image every N ticks (0 = off).
   int mapPx = 8;      // OP2H_MAP_PX: its pixels a tile (1, 2, 4, 8, 16 or 32).
   bool mapDaylight = true;  // OP2H_MAP_DAYLIGHT: draw the whole-map images in full daylight (0: as the game shows it).
+  bool mapDraws = true;     // OP2H_MAP_DRAWS: list each whole-map image's sprite and line draws in its state (0: don't).
   int traceEvery = 0;  // trace.jsonl sample interval (0 = off).
   bool turbo = true;
   bool presents = false;  // OP2H_PRESENTS: count pane presents per tick and per real second.
@@ -2823,7 +2824,8 @@ void ClosePresents() {
 // view steps across the map in view-sized pieces: each is centred (DetailPane::CenterViewOn, 0x408210), drawn by the
 // pane's own draw (0x407E50) and copied from the pane's window; the pane's view position gives the piece's place. Then
 // the view goes back. All within one tick, so every piece shows the same game state. The image is the map's playable
-// area, shrunk to OP2H_MAP_PX pixels a tile (1-32, default 8) by averaging.
+// area, shrunk to OP2H_MAP_PX pixels a tile (1-32, default 8) by averaging. While the pieces are drawn, the draw hooks
+// (InstallDrawLog) list what each one drew for the state.
 void WriteBmp24(const char* path, const uint8_t* rows, int w, int h) {  // rows: top-down, 3 bytes a pixel (BGR)
   const DWORD stride = ((w * 3 + 3) & ~3), imageSize = stride * h;
   BITMAPINFOHEADER bh = { sizeof(BITMAPINFOHEADER), w, h, 1, 24, BI_RGB, imageSize };
@@ -2840,12 +2842,79 @@ void WriteBmp24(const char* path, const uint8_t* rows, int w, int h) {  // rows:
   fclose(f);
 }
 
+void WriteState(int tick, int shownW, int shownH);
+
+// Every sprite the game draws for a whole-map image goes through the viewport's frame draw (0x403F20, a thiscall on
+// Viewport+0x824): (animation, frame, x, y, colour, light column), the animation numbered from 101 (op2_art.prt's
+// index + 101), x and y the object's pixel within the view, the colour -1 for the stored palette or the owner in its
+// low 4 bits (a structure's has flags above them). With OP2H_MAP_DRAWS (on by default) the state lists them for each
+// view piece (`views`), so the image can be drawn again exactly from the state alone. The hooks only record: each
+// calls the game's own draw with the same arguments.
+using DrawFrameFn = void(__thiscall*)(void*, int, int, int, int, int, int);
+DrawFrameFn g_drawFrame;
+struct DrawView {
+  int left, top;                         // the piece's top-left in game pixels, padding included
+  std::vector<std::vector<int>> draws;   // in the game's order: a sprite's six numbers, or a line (below)
+  int clip[4];                           // the surface's clip rectangle (left, top, right, bottom) when it drew a line
+  bool hasClip;
+};
+std::vector<DrawView> g_drawViews;     // one a piece of the image being taken, in the order they are copied
+int g_drawViewW = 0, g_drawViewH = 0;  // the pieces' size: each is copied whole over the ones before it
+bool g_drawCollect = false;            // set only while TakeMapShot draws its pieces: the game's own frames aren't listed
+
+void __fastcall DrawFrameHook(void* self, void*, int a1, int a2, int a3, int a4, int a5, int a6) {
+  if (g_drawCollect && !g_drawViews.empty()) g_drawViews.back().draws.push_back({ a1, a2, a3, a4, a5, a6 });
+  g_drawFrame(self, a1, a2, a3, a4, a5, a6);
+}
+
+// Lasers are lines, not sprites: the surface's line draw (0x41EA10, a thiscall taking the two end points and a
+// colour, the 15-bit colour in both halves of the dword) clips them to the surface's rectangle (+0xF8..+0x104) and ORs the colour into a
+// line two pixels thick. A line is listed among the draws as (-1, colour, x1, y1, x2, y2). Microwaves are dashed
+// lines (0x41EE00, which also takes a 32-bit dash pattern and how far to rotate it), listed as
+// (-2, colour, x1, y1, x2, y2, pattern, rotation).
+using DrawLineFn = void(__thiscall*)(void*, const POINT*, const POINT*, int);
+using DrawDashedFn = void(__thiscall*)(void*, const POINT*, const POINT*, int, int, int);
+DrawLineFn g_drawLine;
+DrawDashedFn g_drawDashed;
+
+// Adds a line to the piece being drawn, with the clip rectangle of the surface it went to (+0xF8).
+void RecordLine(void* surface, std::vector<int> draw) {
+  if (!g_drawCollect || g_drawViews.empty()) return;
+  DrawView& v = g_drawViews.back();
+  v.draws.push_back(std::move(draw));
+  const int* rect = reinterpret_cast<const int*>(static_cast<const uint8_t*>(surface) + 0xF8);
+  std::copy(rect, rect + 4, v.clip);
+  v.hasClip = true;
+}
+
+void __fastcall DrawLineHook(void* self, void*, const POINT* a, const POINT* b, int colour) {
+  RecordLine(self, { -1, colour, int(a->x), int(a->y), int(b->x), int(b->y) });
+  g_drawLine(self, a, b, colour);
+}
+
+void __fastcall DrawDashedHook(void* self, void*, const POINT* a, const POINT* b, int colour, int pattern, int rotation) {
+  RecordLine(self, { -2, colour, int(a->x), int(a->y), int(b->x), int(b->y), pattern, rotation });
+  g_drawDashed(self, a, b, colour, pattern, rotation);
+}
+
+// Hooks the three draws when whole-map images with draw lists are on. HookEntry checks each function's first bytes
+// (its prologue) and leaves one it doesn't recognise alone: the log then says FAILED. Without the frame draw's hook
+// states have no `views`; without a line draw's, their `views` miss those lines.
+void InstallDrawLog() {
+  if (!cfg.mapDraws || cfg.mapEvery <= 0) return;
+  static const uint8_t drawLine[] = { 0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x30 };
+  g_drawLine = reinterpret_cast<DrawLineFn>(HookEntry(0x41EA10, drawLine, 7, reinterpret_cast<void*>(&DrawLineHook)));
+  static const uint8_t drawDashed[] = { 0x55, 0x8B, 0x44, 0x24, 0x08, 0x8B, 0xEC };
+  g_drawDashed = reinterpret_cast<DrawDashedFn>(HookEntry(0x41EE00, drawDashed, 7, reinterpret_cast<void*>(&DrawDashedHook)));
+  static const uint8_t drawFrame[] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x3C };
+  g_drawFrame = reinterpret_cast<DrawFrameFn>(HookEntry(0x403F20, drawFrame, 6, reinterpret_cast<void*>(&DrawFrameHook)));
+  Log("mapshot: sprite and line draw hooks %s", g_drawFrame && g_drawLine && g_drawDashed ? "installed" : "FAILED");
+}
+
 // The detail pane's draw leaves values on the x87 register stack (the game's frame loop clears it between frames), so
 // drawing it several times in a row fills the stack: a full stack turns the next fild into NaN, _ftol (0x4C0E7C) into
 // 0, and UnitDrawList's distance division (0x4A2A2B, from CollectVisibleUnits 0x49EAF0) into a divide-by-zero fault.
 // Empty it before each draw, keeping the game's control word (its precision and rounding).
-void WriteState(int tick);
-
 void ResetX87() {
   uint16_t cw = 0;
 #if defined(_MSC_VER)
@@ -2853,9 +2922,7 @@ void ResetX87() {
   __asm { fninit }
   __asm { fldcw cw }
 #else
-  __asm__ __volatile__("fnstcw %0
-	fninit
-	fldcw %0" : "+m"(cw));
+  __asm__ __volatile__("fnstcw %0\n\tfninit\n\tfldcw %0" : "+m"(cw));
 #endif
 }
 
@@ -2886,13 +2953,30 @@ void TakeMapShot(int tick) {
   HGDIOBJ old = SelectObject(mem, bmp);
   const int stride = (vw * 3 + 3) & ~3;
   int pieces = 0;
+  g_drawViews.clear();
+  g_drawCollect = g_drawFrame != nullptr;
+  g_drawViewW = vw;
+  g_drawViewH = vh;
   for (int cy = vh / 2;; cy += vh) {
     const int py = std::min(cy, std::max(vh / 2, mapH - vh / 2));
     for (int cx = vw / 2;; cx += vw) {
       const int px = std::min(cx, std::max(vw / 2, mapW - vw / 2));
-      pane.CenterViewOn(x0 + px, py);
-      ResetX87();
-      pane.OnIdle();
+      // The pane's draw can move the view a few pixels on its own, leaving a strip of the piece it never draws: centre
+      // and draw again (four tries at most) until the view stays where it was centred. A redrawn piece's draws replace
+      // the earlier try's.
+      for (int attempt = 0;; ++attempt) {
+        pane.CenterViewOn(x0 + px, py);
+        const int wantX = pane.viewPosition_.left, wantY = pane.viewPosition_.top;
+        if (g_drawCollect) {
+          if (attempt) g_drawViews.pop_back();
+          g_drawViews.push_back({ wantX, wantY, {}, {}, false });
+        }
+        ResetX87();
+        pane.OnIdle();
+        if ((pane.viewPosition_.left == wantX && pane.viewPosition_.top == wantY) || attempt == 3) break;
+        Log("mapshot: tick %d: the view moved from %d,%d to %d,%d while drawing; drawing again", tick, wantX, wantY,
+            pane.viewPosition_.left, pane.viewPosition_.top);
+      }
       BitBlt(mem, 0, 0, vw, vh, hdc, 0, 0, SRCCOPY);
       GdiFlush();
       // where the view really is (the pane clips it to the map): its top-left, in game pixels
@@ -2913,6 +2997,7 @@ void TakeMapShot(int tick) {
     }
     if (py >= mapH - vh / 2 || mapH <= vh) break;
   }
+  g_drawCollect = false;
   SelectObject(mem, old);
   DeleteObject(bmp);
   DeleteDC(mem);
@@ -2938,14 +3023,16 @@ void TakeMapShot(int tick) {
   snprintf(path, sizeof(path), "%s\\map_%07d.bmp", cfg.out.c_str(), tick);
   WriteBmp24(path, out.data(), ow, oh);
   Log("mapshot: tick %d: %d pieces, %dx%d px (%d a tile)%s", tick, pieces, ow, oh, cfg.mapPx, cfg.mapDaylight ? ", daylight" : "");
-  WriteState(tick);
+  WriteState(tick, ow, oh);
 }
 
 // The game state each whole-map image shows, for drawing it without the game (OP2Imager and the like):
 // `state_<tick>.json`. File coordinates and pixels (internal x less the map's padding); `tiles` and `cells` are the
 // playable area row by row (TileData's graphic index and cell type); `objects` every live map object that isn't a
-// weapon's fire: units, structures, beacons (with ore and yield), wreckage, disasters.
-void WriteState(int tick) {
+// weapon's fire: units, structures, beacons (with ore and yield), wreckage, disasters, each with the animation and
+// frame it shows. `px` and `shown` give the image's scale and size; `animCounter`, `viewSize` and `views` (the pieces'
+// draws, from TakeMapShot) are what drawing the image again pixel for pixel needs (README "Whole-map images").
+void WriteState(int tick, int shownW, int shownH) {
   char path[MAX_PATH * 2];
   snprintf(path, sizeof(path), "%s\\state_%07d.json", cfg.out.c_str(), tick);
   FILE* f = fopen(path, "w");
@@ -2957,8 +3044,10 @@ void WriteState(int tick) {
   std::string map = mapName ? mapName : "";
   for (char& c : map) if (c == '"' || c == '\\' || uint8_t(c) < 0x20) c = '_';
   fprintf(f, "{\"tick\":%d,\"mark\":%d,\"mission\":\"%s\",\"map\":\"%s\",\"width\":%d,\"height\":%d,\"padding\":%d,"
-             "\"daylight\":%d,\"players\":[", tick, tick / 100, dll.c_str(), map.c_str(), w, h, pad,
-          int(g_gameImpl.daylightEverywhere_ != 0));
+             "\"daylight\":%d,\"px\":%d,\"shown\":[%d,%d],", tick, tick / 100, dll.c_str(), map.c_str(), w, h,
+          pad, int(g_gameImpl.daylightEverywhere_ != 0), cfg.mapPx, shownW, shownH);
+  // the counter animated tiles and structure lights take their frame from (0x56EB1C)
+  fprintf(f, "\"animCounter\":%d,\"players\":[", *reinterpret_cast<const int*>(0x56EB1C));
   for (int i = 0; i < g_gameImpl.numPlayers_; ++i) {
     const PlayerImpl* p = g_gameImpl.GetPlayer(i);
     fprintf(f, "%s{\"id\":%d,\"colour\":%d,\"eden\":%d,\"human\":%d}", i ? "," : "", i, int(p->colorType_),
@@ -2983,6 +3072,8 @@ void WriteState(int tick) {
     fprintf(f, "%s{\"i\":%d,\"type\":\"%s\",\"owner\":%d,\"x\":%d,\"y\":%d,\"rot\":%d,\"damage\":%d,\"cargo\":%u",
             first ? "" : ",", int(i), TypeName(mo->GetTypeID()), int(mo->ownerNum_), mo->pixelX_ - pad * 32,
             mo->pixelY_, int(mo->rotation_), int(mo->damage_), unsigned(mo->cargo_));
+    // what it shows: its animation (the game's number) and frame, and its flags
+    fprintf(f, ",\"anim\":%d,\"frame\":%d,\"flags\":%u", int(mo->animationIndex_), int(mo->frameIndex_), unsigned(mo->flags_));
     if (mo->GetTypeID() == MapID::CargoTruck)
       fprintf(f, ",\"truck\":[%d,%d]", int(mo->truckCargoType_), int(mo->truckCargoAmount_));
     if (mo->GetTypeID() == MapID::MiningBeacon) {  // its ore (0 common, 1 rare), bar yield (0 three, 1 two, 2 one) and variant
@@ -2992,7 +3083,24 @@ void WriteState(int tick) {
     fputc('}', f);
     first = false;
   }
-  fputs("]}\n", f);
+  fputs("]", f);
+  if (!g_drawViews.empty()) {
+    fprintf(f, ",\"viewSize\":[%d,%d],\"views\":[", g_drawViewW, g_drawViewH);
+    for (size_t v = 0; v < g_drawViews.size(); ++v) {
+      const DrawView& dv = g_drawViews[v];
+      fprintf(f, "%s{\"left\":%d,\"top\":%d,\"draws\":[", v ? "," : "", dv.left, dv.top);
+      for (size_t d = 0; d < dv.draws.size(); ++d) {
+        fputs(d ? ",[" : "[", f);
+        for (size_t k = 0; k < dv.draws[d].size(); ++k) fprintf(f, k ? ",%d" : "%d", dv.draws[d][k]);
+        fputc(']', f);
+      }
+      fputs("]", f);
+      if (dv.hasClip) fprintf(f, ",\"clip\":[%d,%d,%d,%d]", dv.clip[0], dv.clip[1], dv.clip[2], dv.clip[3]);
+      fputs("}", f);
+    }
+    fputs("]", f);
+  }
+  fputs("}\n", f);
   fclose(f);
 }
 
@@ -5072,6 +5180,7 @@ void ShellInit() {
   g_shellCtl = cfg.out + "\\ctl.txt";
   Log("harness: shell mode");
   InstallPresentHook();
+  InstallDrawLog();
 
   // A private copy of the settings, as in mission runs; here sound and the movies stay as configured (OP2H_INI_<key>
   // overrides a [Game] key, e.g. OP2H_INI_IntroAVI=1).
@@ -5123,6 +5232,7 @@ void Start() {
   cfg.mapEvery   = EnvInt("OP2H_MAP_EVERY", 0);
   cfg.mapPx      = EnvInt("OP2H_MAP_PX", 8);
   cfg.mapDaylight = EnvInt("OP2H_MAP_DAYLIGHT", 1) != 0;
+  cfg.mapDraws = EnvInt("OP2H_MAP_DRAWS", 1) != 0;
   if (cfg.mapPx < 1 || cfg.mapPx > 32 || (cfg.mapPx & (cfg.mapPx - 1))) cfg.mapPx = 8;  // a power of two, 32 at most
   cfg.telemEvery = EnvInt("OP2H_TELEM_EVERY", 100);
   cfg.speed      = EnvInt("OP2H_SPEED", 10);
@@ -5187,6 +5297,7 @@ void Start() {
   if (cfg.turbo) { const uint8_t jmp = 0xEB;  WriteCode(OnIdleFrameLimiter, &jmp, 1); }
   memcpy(g_drawPanesCode, reinterpret_cast<void*>(OnIdleDrawPanes), 2);
   InstallPresentHook();
+  InstallDrawLog();
   InstallRngLog();
   // A recording is a person playing: the game's own questions (save over a slot, quit) are theirs to answer, and the
   // mouse and keys are the real ones.

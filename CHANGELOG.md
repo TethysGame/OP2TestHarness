@@ -34,6 +34,11 @@ says which runs change and why.
 - `--map-every N` (`OP2H_MAP_EVERY`), `--map-px N`, `--map-night`: a whole-map image in the game's own drawing and
   `state_<tick>.json`, the state it shows, every N ticks (README.md "Whole-map images"). A run's telemetry is the
   same with and without them.
+- Whole-map states list what the game drew for the image (`views`: every sprite, laser and microwave line, piece by
+  piece, and `viewSize`), each object's animation, frame and flags, the animated tiles' counter (`animCounter`) and
+  the image's size (`px`, `shown`): enough to draw the image again, pixel for pixel, without the game.
+  `OP2H_MAP_DRAWS=0` leaves `views` out. A piece whose view the game moves while drawing it is drawn again (the log
+  says so), so no piece has an undrawn strip.
 - `netgame.py --lobby-chat "HOST|JOINER"`: the host and the first joiner chat in GAME SETTINGS once every joiner is
   ready; each machine shoots and dumps its lobby after each line.
 - `netgame.py --join-ticks T`: the first joiner plays only to tick T (its script leaves the game there: End Mission, a
