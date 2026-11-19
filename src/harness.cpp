@@ -2926,6 +2926,12 @@ void ResetX87() {
 #endif
 }
 
+// The detail pane's draw, DetailPane::OnIdle (0x407E50), called by address: TethysAPI only declares it, and GCC, which
+// knows the pane's exact type, would call that missing definition directly instead of going through the vtable.
+void DrawDetailPane(DetailPane& pane) {
+  reinterpret_cast<void(__thiscall*)(DetailPane*)>(0x407E50)(&pane);
+}
+
 void TakeMapShot(int tick) {
   DetailPane& pane = g_gameFrame.detailPane_;
   HWND hWnd = pane.hWnd_;
@@ -2972,7 +2978,7 @@ void TakeMapShot(int tick) {
           g_drawViews.push_back({ wantX, wantY, {}, {}, false });
         }
         ResetX87();
-        pane.OnIdle();
+        DrawDetailPane(pane);
         if ((pane.viewPosition_.left == wantX && pane.viewPosition_.top == wantY) || attempt == 3) break;
         Log("mapshot: tick %d: the view moved from %d,%d to %d,%d while drawing; drawing again", tick, wantX, wantY,
             pane.viewPosition_.left, pane.viewPosition_.top);
@@ -3006,7 +3012,7 @@ void TakeMapShot(int tick) {
   g_gameImpl.daylightEverywhere_ = oldDaylight;
   pane.CenterViewOn(oldX + vw / 2, oldY + vh / 2);
   ResetX87();
-  pane.OnIdle();
+  DrawDetailPane(pane);
 
   // shrink to cfg.mapPx pixels a tile by averaging each block
   const int f = 32 / cfg.mapPx, ow = maxX / f, oh = maxY / f;
