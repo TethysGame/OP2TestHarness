@@ -99,6 +99,7 @@ The file reads top to bottom by area:
 | Config, `Env` | `OP2H_*` variables into `cfg` |
 | Code patching | `WriteCode`, `RelinkCall`, `JumpTo`; turbo (frame limiter 0x49C374), pane drawing on/off (0x49C5FC) |
 | Screenshots | the game window's client area to a 24-bit BMP (GDI BitBlt) |
+| Whole-map images | `TakeMapShot` (the view stepped across the map), `WriteState`, and `png::Encode`: a PNG encoder whose output is fixed, so the same pixels give the same file |
 | Telemetry, trace | `WriteTelemetry` (periodic state), `WriteTrace` (each unit's sub-pixel position, heading, HP, order, target, RNG) |
 | `WriteGameData` | gamedata.json at the first tick: map geometry, terrain speeds, unit stats as loaded (sheets + OPU patches) |
 | Script | `LoadScript`, `RunScriptCmd`: `<tick> <verb> <args>` lines (spawn, setcell, move, attack, research, view, shot...) |

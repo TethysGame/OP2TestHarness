@@ -247,8 +247,14 @@ then every multiple of N, and at the end.
   four times), and the log says so ("the view moved ... while drawing").
 - **Light.** In full daylight by default (`GameImpl::daylightEverywhere_` set for these draws only and put back before
   the tick goes on); `--map-night` (`OP2H_MAP_DAYLIGHT=0`) keeps the game's own light.
+- **No UI.** Units' overlays (`MapUnit::DrawUIOverlay`, 0x43EA60: health bars and selection marks) are skipped in
+  these draws, so an image shows the map and its units only and doesn't depend on the selection or the mouse.
 - **Size.** The playable area as the game can show it (its last row is never in view), averaged down to `--map-px`
   (`OP2H_MAP_PX`) pixels a tile: 8 by default (a 128x64 map is 1024x504), 32 for the game's own size.
+- **File.** The DLL writes the PNG itself (8-bit RGB) with an encoder of its own, `png::Encode` in src/harness.cpp,
+  whose every choice (filter, matching, Huffman trees, blocks) is fixed and written down there: the same pixels give
+  the same file on every platform. A program that encodes its PNGs the same way and draws a state again writes a file
+  with the same hash as the game's image.
 - **No effect on the game.** Only drawing and the view change, and both are put back; the draw hooks behind `views`
   only record their calls. A run's telemetry is byte-identical with and without map images.
 - **`state_<tick>.json`**, beside each image: `tick`, `mark`, `mission`, `map` (the DLL's `MapName`), `width`, `height`,
@@ -269,8 +275,7 @@ then every multiple of N, and at the end.
     them). A laser, from the surface's line draw (0x41EA10), is (-1, colour, x1, y1, x2, y2); a
     microwave, from its dashed line draw (0x41EE00), is (-2, colour, x1, y1, x2, y2, pattern, rotation). A piece with
     a line has `clip`, the surface's clip rectangle the line was clipped to.
-- **Drawing it again.** A state with `views` is enough to draw the same pixels without the game: OP2Imager does it
-  (and `OP2Imager --compare` checks two images pixel for pixel).
+- **Drawing it again.** A state with `views` is enough to draw the same pixels without the game.
   The game draws into a 15-bit surface (5 bits a channel, widened back to 8 by repeating the top bits); a sprite
   colour lands truncated to 5 bits, a shadow pixel darkens each channel `c` to `(c >> 1) + (c >> 2)`, an animated tile
   shows frame `(animCounter / (delay + 1)) % (count + 1)`, and a laser is a Bresenham line two pixels thick, its colour
@@ -941,7 +946,8 @@ three side by side, and `windows/trace_diff.py` compares any two traces (windows
 `OP2H_MISSION`, `InitMod` returns at once and the game behaves normally. Otherwise it:
 
 1. Points the game's settings object (`g_configFile.iniPath_`) at a copy of `outpost2.ini` in the output directory,
-   with music and sound off and window geometry set. The game writes its window and desktop size back to the ini while
+   with music and sound off, `ShowUnitHPBars=0` (1.2's health bars: the selected unit and the one under the mouse;
+   `OP2H_INI_ShowUnitHPBars=1` keeps OPU's bars on every damaged unit) and window geometry set. The game writes its window and desktop size back to the ini while
    it runs, and this keeps those writes away from the user's settings.
 2. Sets `TApp::bShowShell_ = 0`, the same thing the hidden `/noshell` switch does. `TApp::CreateFrames()` then calls
    `GameImpl::LoadDebugMap()` instead of opening the shell. The harness redirects that call (0x486606) to a function

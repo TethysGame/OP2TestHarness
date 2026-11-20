@@ -82,13 +82,13 @@ def setup(source: Path, game: Path) -> None:
 
 
 def to_png(out: Path) -> int:
-    """BMP -> PNG through System.Drawing (no PIL needed): the screenshots and the whole-map images. Returns the number
-    of screenshots."""
+    """BMP -> PNG through System.Drawing (no PIL needed): the screenshots (the DLL writes whole-map images as PNGs
+    itself). Returns the number of screenshots."""
     shots = len(list(out.glob("shot_*.bmp")))
-    if any(out.glob("shot_*.bmp")) or any(out.glob("map_*.bmp")):
+    if shots:
         # One loop over the folder, not a command per file: a long run's list overflows the command line.
         ps = ("Add-Type -AssemblyName System.Drawing; "
-              rf"Get-ChildItem -LiteralPath '{out}' -File | Where-Object {{ $_.Name -match '^(shot|map)_.*\.bmp$' }} | "
+              rf"Get-ChildItem -LiteralPath '{out}' -File | Where-Object {{ $_.Name -match '^shot_.*\.bmp$' }} | "
               "ForEach-Object { $i=[System.Drawing.Image]::FromFile($_.FullName); "
               "$i.Save([IO.Path]::ChangeExtension($_.FullName, '.png'), [System.Drawing.Imaging.ImageFormat]::Png); "
               "$i.Dispose(); Remove-Item -LiteralPath $_.FullName }")

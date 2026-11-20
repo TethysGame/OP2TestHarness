@@ -2826,20 +2826,284 @@ void ClosePresents() {
 // the view goes back. All within one tick, so every piece shows the same game state. The image is the map's playable
 // area, shrunk to OP2H_MAP_PX pixels a tile (1-32, default 8) by averaging. While the pieces are drawn, the draw hooks
 // (InstallDrawLog) list what each one drew for the state.
-void WriteBmp24(const char* path, const uint8_t* rows, int w, int h) {  // rows: top-down, 3 bytes a pixel (BGR)
-  const DWORD stride = ((w * 3 + 3) & ~3), imageSize = stride * h;
-  BITMAPINFOHEADER bh = { sizeof(BITMAPINFOHEADER), w, h, 1, 24, BI_RGB, imageSize };
-  BITMAPFILEHEADER fh = { 0x4D42, DWORD(sizeof(fh) + sizeof(bh) + imageSize), 0, 0, DWORD(sizeof(fh) + sizeof(bh)) };
-  FILE* f = fopen(path, "wb");
-  if (!f) return;
-  fwrite(&fh, sizeof(fh), 1, f);
-  fwrite(&bh, sizeof(bh), 1, f);
-  std::vector<uint8_t> line(stride, 0);
-  for (int y = h - 1; y >= 0; --y) {  // a BMP is stored bottom-up
-    memcpy(line.data(), rows + size_t(y) * w * 3, size_t(w) * 3);
-    fwrite(line.data(), stride, 1, f);
+// The whole-map image as a PNG of 8-bit RGB, encoded one fixed way so the same pixels always give the same file on
+// every platform: another program that encodes its PNGs the same way and draws the image again from its state writes
+// a file with the same hash. The encoding:
+// - chunks IHDR (colour type 2), one IDAT, IEND; every row filtered with Paeth (filter 4);
+// - a zlib stream (header 78 01, Adler-32 at the end) of dynamic-Huffman deflate blocks of 65536 symbols (the last
+//   one up to 65536 too), each closed by its end-of-block code;
+// - greedy LZ77: at each byte, up to 32 earlier positions on its 3-byte hash's chain, nearest first, at distances
+//   below 32768; the longest match of 3 to 258 bytes wins (the nearest on a tie), else a literal; every position
+//   passed goes on its chain (hash ((b0 << 10) ^ (b1 << 5) ^ b2) & 0x7FFF);
+// - code lengths from a Huffman tree built from the counts sorted by (count, symbol), joining the two lightest nodes
+//   (a leaf before an inner node of the same weight); while a code is longer than 15 bits (7 for the code-length
+//   code), every count is halved (at least 1) and the tree built again; a tree with fewer than two symbols gets
+//   symbols 0 and 1 counted once; codes are canonical (RFC 1951);
+// - the literal/length and distance lengths are run-length coded as one sequence: zero runs as 18 (11-138) while 11
+//   or more are left, then 17 (3-10), then single zeros; any other length once, then 16 (3-6 repeats) while 3 or more
+//   are left, then singly.
+namespace png {
+
+struct Bits {
+  std::vector<uint8_t> out;
+  uint64_t acc = 0;
+  int n = 0;
+  void put(uint32_t v, int count) {
+    acc |= uint64_t(v) << n;
+    n += count;
+    while (n >= 8) { out.push_back(uint8_t(acc)); acc >>= 8; n -= 8; }
   }
-  fclose(f);
+  void code(uint32_t c, int len) {  // a Huffman code, most significant bit first
+    uint32_t r = 0;
+    for (int i = 0; i < len; ++i) r |= ((c >> i) & 1) << (len - 1 - i);
+    put(r, len);
+  }
+  void flush() { if (n > 0) put(0, 8 - n); }
+};
+
+std::vector<int> Lengths(std::vector<uint32_t> f, int limit) {
+  const int count = int(f.size());
+  int used = 0;
+  for (uint32_t v : f) used += v != 0;
+  if (used < 2)
+    for (int s = 0; s < 2; ++s) if (!f[s]) f[s] = 1;
+  std::vector<int> len(count, 0);
+  for (;;) {
+    std::vector<int> leaves;
+    for (int s = 0; s < count; ++s) if (f[s]) leaves.push_back(s);
+    std::stable_sort(leaves.begin(), leaves.end(), [&](int a, int b) { return f[a] < f[b]; });
+    const int k = int(leaves.size());
+    // nodes 0..k-1 are the leaves in sorted order, k.. the inner nodes as they are made
+    std::vector<uint64_t> w(2 * k - 1);
+    std::vector<int> parent(2 * k - 1, -1);
+    for (int i = 0; i < k; ++i) w[i] = f[leaves[i]];
+    int li = 0, ii = k, made = k;
+    auto take = [&]() {
+      if (li < k && (ii >= made || w[li] <= w[ii])) return li++;
+      return ii++;
+    };
+    while (made < 2 * k - 1) {
+      const int a = take(), b = take();
+      w[made] = w[a] + w[b];
+      parent[a] = parent[b] = made;
+      ++made;
+    }
+    std::vector<int> depth(2 * k - 1, 0);
+    for (int i = 2 * k - 3; i >= 0; --i) depth[i] = depth[parent[i]] + 1;
+    int deepest = 0;
+    for (int i = 0; i < k; ++i) deepest = std::max(deepest, depth[i]);
+    if (deepest <= limit) {
+      for (int i = 0; i < k; ++i) len[leaves[i]] = depth[i];
+      return len;
+    }
+    for (uint32_t& v : f) if (v) v = std::max<uint32_t>(1, v >> 1);
+  }
+}
+
+std::vector<uint32_t> Codes(const std::vector<int>& len) {
+  int blCount[16] = {}, next[16] = {};
+  for (int l : len) if (l) ++blCount[l];
+  for (int b = 1, code = 0; b < 16; ++b) { code = (code + blCount[b - 1]) << 1; next[b] = code; }
+  std::vector<uint32_t> c(len.size(), 0);
+  for (size_t s = 0; s < len.size(); ++s) if (len[s]) c[s] = next[len[s]]++;
+  return c;
+}
+
+const int kLenBase[29] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115,
+                           131, 163, 195, 227, 258 };
+const int kLenExtra[29] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
+const int kDistBase[30] = { 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
+                            2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
+const int kDistExtra[30] = { 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12,
+                             13, 13 };
+
+int Slot(const int* base, int n, int v) {  // the last entry whose base is at most v
+  int i = n - 1;
+  while (base[i] > v) --i;
+  return i;
+}
+
+struct Sym { uint16_t len, dist; uint8_t lit; };  // len 0: a literal
+
+void Block(Bits& bits, const std::vector<Sym>& syms, bool last) {
+  std::vector<uint32_t> lf(286, 0), df(30, 0);
+  for (const Sym& s : syms) {
+    if (!s.len) { ++lf[s.lit]; continue; }
+    ++lf[257 + Slot(kLenBase, 29, s.len)];
+    ++df[Slot(kDistBase, 30, s.dist)];
+  }
+  lf[256] = 1;
+  const std::vector<int> ll = Lengths(lf, 15), dl = Lengths(df, 15);
+  const std::vector<uint32_t> lc = Codes(ll), dc = Codes(dl);
+  int hlit = 286, hdist = 30;
+  while (hlit > 257 && !ll[hlit - 1]) --hlit;
+  while (hdist > 1 && !dl[hdist - 1]) --hdist;
+  std::vector<int> seq(ll.begin(), ll.begin() + hlit);
+  seq.insert(seq.end(), dl.begin(), dl.begin() + hdist);
+  std::vector<std::pair<int, int>> rle;  // (symbol 0-18, its extra bits' value)
+  for (size_t i = 0; i < seq.size();) {
+    const int v = seq[i];
+    int run = 1;
+    while (i + run < seq.size() && seq[i + run] == v) ++run;
+    int r = run;
+    if (v == 0) {
+      while (r >= 11) { const int t = std::min(r, 138); rle.push_back({ 18, t - 11 }); r -= t; }
+      if (r >= 3) { rle.push_back({ 17, r - 3 }); r = 0; }
+    } else {
+      rle.push_back({ v, 0 });
+      --r;
+      while (r >= 3) { const int t = std::min(r, 6); rle.push_back({ 16, t - 3 }); r -= t; }
+    }
+    for (; r > 0; --r) rle.push_back({ v, 0 });
+    i += run;
+  }
+  std::vector<uint32_t> cf(19, 0);
+  for (const auto& p : rle) ++cf[p.first];
+  const std::vector<int> cl = Lengths(cf, 7);
+  const std::vector<uint32_t> cc = Codes(cl);
+  static const int order[19] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
+  int hclen = 19;
+  while (hclen > 4 && !cl[order[hclen - 1]]) --hclen;
+  bits.put(last ? 1 : 0, 1);
+  bits.put(2, 2);
+  bits.put(hlit - 257, 5);
+  bits.put(hdist - 1, 5);
+  bits.put(hclen - 4, 4);
+  for (int i = 0; i < hclen; ++i) bits.put(cl[order[i]], 3);
+  for (const auto& [s, extra] : rle) {
+    bits.code(cc[s], cl[s]);
+    if (s == 16) bits.put(extra, 2);
+    else if (s == 17) bits.put(extra, 3);
+    else if (s == 18) bits.put(extra, 7);
+  }
+  for (const Sym& s : syms) {
+    if (!s.len) { bits.code(lc[s.lit], ll[s.lit]); continue; }
+    const int l = Slot(kLenBase, 29, s.len), d = Slot(kDistBase, 30, s.dist);
+    bits.code(lc[257 + l], ll[257 + l]);
+    bits.put(s.len - kLenBase[l], kLenExtra[l]);
+    bits.code(dc[d], dl[d]);
+    bits.put(s.dist - kDistBase[d], kDistExtra[d]);
+  }
+  bits.code(lc[256], ll[256]);
+}
+
+std::vector<uint8_t> Deflate(const std::vector<uint8_t>& d) {
+  const int window = 32768, mask = window - 1, chainMax = 32, blockMax = 65536;
+  const int n = int(d.size());
+  std::vector<int> head(1 << 15, -1), prev(window, -1);
+  auto hash = [&](int i) { return ((d[i] << 10) ^ (d[i + 1] << 5) ^ d[i + 2]) & 0x7FFF; };
+  auto insert = [&](int i) {
+    if (i + 2 >= n) return;
+    const int h = hash(i);
+    prev[i & mask] = head[h];
+    head[h] = i;
+  };
+  Bits bits;
+  std::vector<Sym> syms;
+  syms.reserve(blockMax);
+  for (int i = 0; i < n;) {
+    int best = 0, bestDist = 0;
+    if (i + 2 < n) {
+      const int maxLen = std::min(258, n - i);
+      int c = head[hash(i)];
+      for (int chain = chainMax; c >= 0 && i - c < window && chain > 0; --chain) {
+        int len = 0;
+        while (len < maxLen && d[c + len] == d[i + len]) ++len;
+        if (len > best) {
+          best = len;
+          bestDist = i - c;
+          if (len == maxLen) break;
+        }
+        const int next = prev[c & mask];
+        if (next >= c) break;
+        c = next;
+      }
+    }
+    if (best >= 3) {
+      syms.push_back({ uint16_t(best), uint16_t(bestDist), 0 });
+      for (int k = 0; k < best; ++k) insert(i + k);
+      i += best;
+    } else {
+      syms.push_back({ 0, 0, d[i] });
+      insert(i);
+      ++i;
+    }
+    if (int(syms.size()) == blockMax && i < n) {
+      Block(bits, syms, false);
+      syms.clear();
+    }
+  }
+  Block(bits, syms, true);
+  bits.flush();
+  return std::move(bits.out);
+}
+
+uint32_t Crc32(const uint8_t* p, size_t n) {
+  static uint32_t table[256];
+  if (!table[1])
+    for (uint32_t i = 0; i < 256; ++i) {
+      uint32_t c = i;
+      for (int k = 0; k < 8; ++k) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+      table[i] = c;
+    }
+  uint32_t crc = ~0u;
+  for (size_t i = 0; i < n; ++i) crc = table[(crc ^ p[i]) & 0xFF] ^ (crc >> 8);
+  return ~crc;
+}
+
+void Be32(std::vector<uint8_t>& v, uint32_t x) {
+  for (int s = 24; s >= 0; s -= 8) v.push_back(uint8_t(x >> s));
+}
+
+void Chunk(std::vector<uint8_t>& file, const char* type, const std::vector<uint8_t>& data) {
+  Be32(file, uint32_t(data.size()));
+  const size_t start = file.size();
+  file.insert(file.end(), type, type + 4);
+  file.insert(file.end(), data.begin(), data.end());
+  Be32(file, Crc32(file.data() + start, file.size() - start));
+}
+
+// rgb: top-down rows, 3 bytes a pixel in R, G, B order
+std::vector<uint8_t> Encode(const uint8_t* rgb, int w, int h) {
+  const size_t row = size_t(w) * 3;
+  std::vector<uint8_t> raw;
+  raw.reserve((row + 1) * h);
+  for (int y = 0; y < h; ++y) {
+    const uint8_t* cur = rgb + y * row;
+    const uint8_t* up = y ? cur - row : nullptr;
+    raw.push_back(4);
+    for (size_t x = 0; x < row; ++x) {
+      const int a = x >= 3 ? cur[x - 3] : 0, b = up ? up[x] : 0, c = up && x >= 3 ? up[x - 3] : 0;
+      const int p = a + b - c, pa = abs(p - a), pb = abs(p - b), pc = abs(p - c);
+      const int pred = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      raw.push_back(uint8_t(cur[x] - pred));
+    }
+  }
+  std::vector<uint8_t> z = { 0x78, 0x01 };
+  const std::vector<uint8_t> deflated = Deflate(raw);
+  z.insert(z.end(), deflated.begin(), deflated.end());
+  uint32_t s1 = 1, s2 = 0;
+  for (uint8_t byte : raw) { s1 = (s1 + byte) % 65521; s2 = (s2 + s1) % 65521; }
+  Be32(z, (s2 << 16) | s1);
+  std::vector<uint8_t> file = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+  std::vector<uint8_t> ihdr;
+  Be32(ihdr, uint32_t(w));
+  Be32(ihdr, uint32_t(h));
+  ihdr.insert(ihdr.end(), { 8, 2, 0, 0, 0 });
+  Chunk(file, "IHDR", ihdr);
+  Chunk(file, "IDAT", z);
+  Chunk(file, "IEND", {});
+  return file;
+}
+
+}  // namespace png
+
+void WritePng(const char* path, const uint8_t* rgb, int w, int h) {
+  const std::vector<uint8_t> file = png::Encode(rgb, w, h);
+  if (FILE* f = fopen(path, "wb")) {
+    fwrite(file.data(), 1, file.size(), f);
+    fclose(f);
+  }
 }
 
 void WriteState(int tick, int shownW, int shownH);
@@ -2911,6 +3175,25 @@ void InstallDrawLog() {
   Log("mapshot: sprite and line draw hooks %s", g_drawFrame && g_drawLine && g_drawDashed ? "installed" : "FAILED");
 }
 
+// A unit's UI overlay, MapUnit::DrawUIOverlay (0x43EA60, a thiscall taking draw flags, the viewport and one more
+// value; ret 0xC): its health bar and selection marks. The game draws it for the selected unit and the one under the
+// mouse (the real cursor, wherever it is on the desktop), and OPU's ShowUnitHPBars=1 for every damaged unit too.
+// Whole-map images skip it, so they show the map and its units only and don't depend on the mouse.
+using DrawOverlayFn = void(__thiscall*)(void*, int, void*, int);
+DrawOverlayFn g_drawOverlay;
+bool g_mapDrawing = false;  // set only while TakeMapShot draws its pieces
+
+void __fastcall DrawOverlayHook(void* self, void*, int flags, void* viewport, int a3) {
+  if (!g_mapDrawing) g_drawOverlay(self, flags, viewport, a3);
+}
+
+void InstallOverlaySkip() {
+  if (cfg.mapEvery <= 0) return;
+  static const uint8_t prologue[] = { 0x81, 0xEC, 0xCC, 0x01, 0x00, 0x00 };
+  g_drawOverlay = reinterpret_cast<DrawOverlayFn>(HookEntry(0x43EA60, prologue, 6, reinterpret_cast<void*>(&DrawOverlayHook)));
+  Log("mapshot: unit overlay hook %s", g_drawOverlay ? "installed" : "FAILED");
+}
+
 // The detail pane's draw leaves values on the x87 register stack (the game's frame loop clears it between frames), so
 // drawing it several times in a row fills the stack: a full stack turns the next fild into NaN, _ftol (0x4C0E7C) into
 // 0, and UnitDrawList's distance division (0x4A2A2B, from CollectVisibleUnits 0x49EAF0) into a divide-by-zero fault.
@@ -2961,6 +3244,7 @@ void TakeMapShot(int tick) {
   int pieces = 0;
   g_drawViews.clear();
   g_drawCollect = g_drawFrame != nullptr;
+  g_mapDrawing = true;
   g_drawViewW = vw;
   g_drawViewH = vh;
   for (int cy = vh / 2;; cy += vh) {
@@ -3004,6 +3288,7 @@ void TakeMapShot(int tick) {
     if (py >= mapH - vh / 2 || mapH <= vh) break;
   }
   g_drawCollect = false;
+  g_mapDrawing = false;
   SelectObject(mem, old);
   DeleteObject(bmp);
   DeleteDC(mem);
@@ -3026,13 +3311,14 @@ void TakeMapShot(int tick) {
         out[(size_t(y) * ow + x) * 3 + c] = uint8_t(sum / (f * f));
       }
   char path[MAX_PATH * 2];
-  snprintf(path, sizeof(path), "%s\\map_%07d.bmp", cfg.out.c_str(), tick);
-  WriteBmp24(path, out.data(), ow, oh);
+  for (size_t i = 0; i < out.size(); i += 3) std::swap(out[i], out[i + 2]);  // the screen's BGR to RGB
+  snprintf(path, sizeof(path), "%s\\map_%07d.png", cfg.out.c_str(), tick);
+  WritePng(path, out.data(), ow, oh);
   Log("mapshot: tick %d: %d pieces, %dx%d px (%d a tile)%s", tick, pieces, ow, oh, cfg.mapPx, cfg.mapDaylight ? ", daylight" : "");
   WriteState(tick, ow, oh);
 }
 
-// The game state each whole-map image shows, for drawing it without the game (OP2Imager and the like):
+// The game state each whole-map image shows, for drawing it without the game:
 // `state_<tick>.json`. File coordinates and pixels (internal x less the map's padding); `tiles` and `cells` are the
 // playable area row by row (TileData's graphic index and cell type); `objects` every live map object that isn't a
 // weapon's fire: units, structures, beacons (with ore and yield), wreckage, disasters, each with the animation and
@@ -5187,6 +5473,7 @@ void ShellInit() {
   Log("harness: shell mode");
   InstallPresentHook();
   InstallDrawLog();
+  InstallOverlaySkip();
 
   // A private copy of the settings, as in mission runs; here sound and the movies stay as configured (OP2H_INI_<key>
   // overrides a [Game] key, e.g. OP2H_INI_IntroAVI=1).
@@ -5281,6 +5568,10 @@ void Start() {
     // A recording keeps the player's sound and music unless asked (OP2H_SILENT).
     if (!g_record || EnvInt("OP2H_SILENT", 0))
       for (const char* key : { "Music", "Sound" }) WritePrivateProfileStringA("Game", key, "0", ini.c_str());
+    // No health bars on unselected damaged units (OPU's ShowUnitHPBars, on by default), so frames and whole-map
+    // images show the map and its units only; OP2H_INI_ShowUnitHPBars=1 keeps OPU's bars.
+    const std::string hpBars = Env("OP2H_INI_ShowUnitHPBars");
+    WritePrivateProfileStringA("Game", "ShowUnitHPBars", hpBars.empty() ? "0" : hpBars.c_str(), ini.c_str());
     // Window geometry comes from here at creation; resizing later would shift the mission's initial view.
     // The game's frame adds 24x34 px around the client area.
     const std::pair<const char*, int> window[] = {
@@ -5304,6 +5595,7 @@ void Start() {
   memcpy(g_drawPanesCode, reinterpret_cast<void*>(OnIdleDrawPanes), 2);
   InstallPresentHook();
   InstallDrawLog();
+  InstallOverlaySkip();
   InstallRngLog();
   // A recording is a person playing: the game's own questions (save over a slot, quit) are theirs to answer, and the
   // mouse and keys are the real ones.

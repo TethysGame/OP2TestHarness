@@ -30,6 +30,11 @@ says which runs change and why.
 
 ## Unreleased
 
+**Changed** (MAJOR: screenshots of damaged units change)
+- Mission runs set `ShowUnitHPBars=0` in their private outpost2.ini: health bars only on the selected unit and the
+  one under the mouse, as in the original 1.2, not OPU's bars on every damaged unit. `OP2H_INI_ShowUnitHPBars=1`
+  keeps OPU's.
+
 **Added** (MINOR: every existing recording replays identically)
 - `--map-every N` (`OP2H_MAP_EVERY`), `--map-px N`, `--map-night`: a whole-map image in the game's own drawing and
   `state_<tick>.json`, the state it shows, every N ticks (README.md "Whole-map images"). A run's telemetry is the
@@ -37,6 +42,9 @@ says which runs change and why.
 - Whole-map states list what the game drew for the image (`views`: every sprite, laser and microwave line, piece by
   piece, and `viewSize`), each object's animation, frame and flags, the animated tiles' counter (`animCounter`) and
   the image's size (`px`, `shown`): enough to draw the image again, pixel for pixel, without the game.
+  Whole-map images skip units' overlays (health bars, selection marks), and the DLL writes them as PNGs itself, with
+  an encoder whose output is fixed (README.md "Whole-map images", File): the same pixels always give the same file,
+  so images can be compared by hash.
   `OP2H_MAP_DRAWS=0` leaves `views` out. A piece whose view the game moves while drawing it is drawn again (the log
   says so), so no piece has an undrawn strip.
 - `netgame.py --lobby-chat "HOST|JOINER"`: the host and the first joiner chat in GAME SETTINGS once every joiner is
