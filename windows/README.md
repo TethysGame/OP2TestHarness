@@ -12,6 +12,7 @@ that needs; the rest of OP2TestHarness (src/, test/, run.py's scenario translati
 | `compare.py` | the original vs op2-rs on one scenario: op2-sim's tick-by-tick compare, both pictures side by side |
 | `run_port.py` | `install` copies a built outpost2-port into the game copy; `run` plays a scenario in its `--harness` mode |
 | `trace_diff.py` | compares two `trace.jsonl` files field by field, tick by tick (MATCH, or each field's first difference) |
+| `telemetry_diff.py` | the same for two `telemetry.jsonl` files: players, their `eco` fields, units by id, beacons |
 | `compare_port.py` | the original vs a port with a `--harness` mode (outpost2-port, marcelomgoncalves/outpost2) and with `--op2rs` op2-rs, on one or more scenarios; pictures side by side (original \| op2-rs \| port) |
 
 ## Requirements
@@ -105,15 +106,21 @@ python -I windows\compare.py %ORACLE%\scenarios\cmb_duel_laser.json --tick 200
 [outpost2-port](https://github.com/leviathan400/outpost2-port) has a `--harness` mode that plays a scenario script and
 writes the same `trace.jsonl` as the original's harness. After building the port (`cmake --build build --config Release`):
 ```
-python -I windows\run_port.py install --port C:\Users\Desktop\GITHUB\outpost2-port
+python -I windows\run_port.py install --port C:\Users\Desktop\GITHUB\marcel-outpost2
 python -I windows\compare_port.py %ORACLE%\scenarios\line_fast.json %ORACLE%\scenarios\cmb_duel_laser.json --op2rs
 ```
 `compare_port.py` writes, per scenario, to `build\compare-port\<scenario>\`: `port_diff.txt` (MATCH, or the first tick
-each field differs), `side_by_side.png` (original | op2-rs | port) and, with `--op2rs`, `sim_compare.txt`.
+each field differs, for the trace and for the telemetry), `side_by_side.png` (original | op2-rs | port) and, with
+`--op2rs`, `sim_compare.txt`. A scenario with no trace (telemetry only) is compared on its telemetry.
+
+The port writes telemetry from its 2026-11-20 `--harness` on (`--telemetry-every N`, `--eco`; `run_port.py` passes the
+scenario's `telemetryEvery` and `eco`): the original's fields, except those the port doesn't model, which it leaves out
+(`eco`'s `maxFood`, `morale08`, `morale24` and `rcc`; `pi`; the units' `raw` and `hive`). Only fields both sides
+write are compared. An older port build stops at the unknown option `--telemetry-every`.
 
 The port's upstream, [marcelomgoncalves/outpost2](https://github.com/marcelomgoncalves/outpost2), has the same
-`--harness` mode, so it is compared the same way: `run_port.py install --port <its checkout>`, then `compare_port.py ...
---port-label marcel-outpost2` to name it in the pictures. On 2026-11-10 (its commit 1ac3673) it matched the original on
+`--harness` mode, and its checkout (`C:\Users\Desktop\GITHUB\marcel-outpost2`) is now `run_port.py install`'s
+default (`--port` for another); `compare_port.py --port-label NAME` names the port in the pictures. On 2026-11-10 (its commit 1ac3673) it matched the original on
 cmb_duel_laser and cmb_duel_rail_gun; on line_fast every tick but one (tick 731, the arrival: x 16/65536 of a pixel
 short). In its pictures the damaged tanks have no health bars and the Plymouth tank is drawn in player 0's blue.
 

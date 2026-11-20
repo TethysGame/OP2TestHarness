@@ -36,6 +36,10 @@ says which runs change and why.
   keeps OPU's.
 
 **Added** (MINOR: every existing recording replays identically)
+- `windows/telemetry_diff.py`: compares two `telemetry.jsonl` files field by field (players and their `eco` fields,
+  units by id, beacons). `compare_port.py` compares the port's telemetry with the original's as well, and a scenario
+  with no trace on its telemetry alone. `run_port.py` passes the scenario's `telemetryEvery` and `eco`, and installs
+  from marcelomgoncalves/outpost2's checkout by default.
 - `--map-every N` (`OP2H_MAP_EVERY`), `--map-px N`, `--map-night`: a whole-map image in the game's own drawing and
   `state_<tick>.json`, the state it shows, every N ticks (README.md "Whole-map images"). A run's telemetry is the
   same with and without them.

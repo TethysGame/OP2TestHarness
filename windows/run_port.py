@@ -1,11 +1,11 @@
-"""Runs a scenario in outpost2-port (github.com/leviathan400/outpost2-port) through its --harness mode, from the private
-game copy, writing the same files as run_win.py does for the original.
+"""Runs a scenario in a port with a --harness mode (github.com/marcelomgoncalves/outpost2, or outpost2-port), from
+the private game copy, writing the same files as run_win.py does for the original.
 
   python -I windows/run_port.py install [--port C:\\...\\outpost2-port] [--game DIR]
       Copies the port's built outpost2_modern.exe (build\\Release) and SDL2.dll into the game copy. Run it after each
       build of the port.
   python -I windows/run_port.py run SCENARIO.json OUT_DIR [--game DIR] [--shot-every N] [--timeout S] [--show]
-      Writes trace.jsonl, harness.log, shot_*.png, port_stdout.txt and summary.json to OUT_DIR. --show keeps the
+      Writes trace.jsonl, telemetry.jsonl, harness.log, shot_*.png, port_stdout.txt and summary.json to OUT_DIR. --show keeps the
       port's window visible.
 
 The script is run.py's translation of the scenario, the one the original plays (scenario_script.txt).
@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_win  # noqa: E402  (also imports run.py, the scenario translator)
 
 ROOT = run_win.ROOT
-DEFAULT_PORT = Path(r"C:\Users\Desktop\GITHUB\outpost2-port")
+DEFAULT_PORT = Path(r"C:\Users\Desktop\GITHUB\marcel-outpost2")
 PORT_EXE = "outpost2_modern.exe"
 
 
@@ -48,7 +48,7 @@ def run_scenario(a) -> int:
     scn = json.loads(scn_path.read_text())
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    for old in [*out.glob("shot_*"), *(out / n for n in ("trace.jsonl", "harness.log", "summary.json", "port_stdout.txt"))]:
+    for old in [*out.glob("shot_*"), *(out / n for n in ("trace.jsonl", "telemetry.jsonl", "harness.log", "summary.json", "port_stdout.txt"))]:
         old.unlink(missing_ok=True)
     ticks, seed = scn.get("ticks", 3000), scn.get("seed", 1)
     script = out / "scenario_script.txt"
@@ -57,7 +57,10 @@ def run_scenario(a) -> int:
                                        data=json.dumps(dict(scn, seed=seed, ticks=ticks), indent=1) + "\n")
     cmd = [str(exe), "--harness", "--script", str(script), "--out", str(out), "--map", scn.get("map", "cm01.map"),
            "--techtree", scn.get("techtree", "multitek.txt"), "--ticks", str(ticks), "--seed", str(seed),
-           "--trace-every", str(scn.get("traceEvery", 1)), "--shot-every", str(a.shot_every)]
+           "--trace-every", str(scn.get("traceEvery", 1)), "--shot-every", str(a.shot_every),
+           "--telemetry-every", str(scn.get("telemetryEvery", 100))]
+    if scn.get("eco"):
+        cmd.append("--eco")
     if a.show:
         cmd.append("--show")
     start = time.monotonic()
@@ -83,7 +86,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("install", help="copy the port's build into the game copy")
-    i.add_argument("--port", type=Path, default=DEFAULT_PORT, help="outpost2-port checkout (built)")
+    i.add_argument("--port", type=Path, default=DEFAULT_PORT, help="the port's checkout (built)")
     i.add_argument("--game", type=Path, default=run_win.DEFAULT_GAME, help="the private game copy")
     r = sub.add_parser("run", help="run a scenario in the port")
     r.add_argument("scenario", type=Path)
