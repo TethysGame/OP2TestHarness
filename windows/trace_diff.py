@@ -4,18 +4,36 @@
 
 Units are matched by spawn index (the scenario's Nth spawn). For each spawn and field the report gives the first tick
 the two disagree and both values there; a spawn present in one trace and not the other (died, or never made) counts as
-the field `present`. The RNG state is compared per tick as `rng`. Only ticks both traces have are compared, and only
-fields both traces write somewhere (each side may write more: the original's path detail and status timers, the port's
-actionId).
+the field `present`. A vehicle's `path` is compared part by part (`path.start`, `path.steps`, ...), or as `path` when only one side
+has one. Per tick, the
+RNG state is compared as `rng`, the weapon fire of the spawns as `fx`, every other live object as `ents` ([id, type,
+action, timer, px, py]), the object allocator as `alloc` (the highest id and the freed slots as [id, tick, refs]; a
+stale slot, a live object the original's ring still lists, is left out, and so is the ring's [head, tail]) and the
+spawns whose id went to another object as `reused`. Only ticks both traces have are compared, and only fields both
+traces write somewhere (each side may write more: the original's frame and anim).
 """
 import argparse
 import json
 import sys
 from pathlib import Path
 
-# Fields compared when both sides write them. `action`/`cmd` are names in the original and numbers in the port, so
-# they aren't here.
-FIELDS = ["px", "py", "fix", "dir", "hp", "lights", "weapon", "tur", "reload", "tgt", "status"]
+# Unit fields compared when both sides write them; `path` part by part.
+FIELDS = ["px", "py", "fix", "dir", "hp", "cmd", "action", "busy", "ipx", "ipy", "lights", "dest", "path", "weapon", "tur",
+          "reload", "tgt", "status", "tiles"]
+PATH_PARTS = ["start", "moved", "toMove", "rotSpeed", "wp", "numWp", "pt", "numPts", "steps"]
+# Per-tick fields compared when both sides write them.
+TICK_FIELDS = ["fx", "ents", "alloc", "reused"]
+
+
+def tick_value(rec: dict, key: str):
+    v = rec.get(key)
+    if key == "ents" and v is not None:  # --trace-raw adds the animation, frame and bytes
+        return [e[:6] for e in v]
+    if key == "alloc" and v is not None:  # [last, [[id, tick, refs], ...], [head, tail]]
+        return [v[0], [s for s in v[1] if s[1] != 0xFFFFFFFF]]
+    if key == "reused" and v is None:
+        return []
+    return v
 
 
 def load(path: Path) -> dict:
@@ -43,7 +61,10 @@ def compare(a_path: Path, b_path: Path, ignore: tuple = ()) -> dict:
     first: dict[str, dict] = {}
     equal_unit_ticks = unit_ticks = 0
     fields = [f for f in FIELDS if f in written_fields(a) and f in written_fields(b) and f not in ignore]
-    seen_fields: set[str] = set(fields)
+    # `reused` is written only when there is one, so it counts as written when the other per-tick fields are.
+    written = lambda tr, k: any(k in rec for rec in tr.values()) or (k == "reused" and any("alloc" in r for r in tr.values()))
+    tick_fields = [k for k in TICK_FIELDS if written(a, k) and written(b, k) and k not in ignore]
+    seen_fields: set[str] = set(fields) | set(tick_fields)
 
     def note(key: str, tick: int, va, vb):
         if key not in first:
@@ -59,10 +80,24 @@ def compare(a_path: Path, b_path: Path, ignore: tuple = ()) -> dict:
             unit_ticks += 1
             same = True
             for f in fields:  # A field a unit doesn't write this tick (a status effect that's off) counts as null.
-                if ua[s].get(f) != ub[s].get(f):
+                if f == "path":
+                    pa, pb = ua[s].get("path"), ub[s].get("path")
+                    if (pa is None) != (pb is None):  # one side has no path context: one difference, not nine
+                        same = False
+                        note(f"spawn {s} path", t, pa, pb)
+                        continue
+                    pa, pb = pa or {}, pb or {}
+                    for part in PATH_PARTS:
+                        if pa.get(part) != pb.get(part):
+                            same = False
+                            note(f"spawn {s} path.{part}", t, pa.get(part), pb.get(part))
+                elif ua[s].get(f) != ub[s].get(f):
                     same = False
                     note(f"spawn {s} {f}", t, ua[s].get(f), ub[s].get(f))
             equal_unit_ticks += same
+        for key in tick_fields:
+            if tick_value(a[t], key) != tick_value(b[t], key):
+                note(key, t, tick_value(a[t], key), tick_value(b[t], key))
         if "rng" in a[t] and "rng" in b[t] and "rng" not in ignore:
             seen_fields.add("rng")
             if a[t]["rng"] != b[t]["rng"]:

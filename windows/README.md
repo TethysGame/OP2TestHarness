@@ -124,8 +124,11 @@ default (`--port` for another); `compare_port.py --port-label NAME` names the po
 cmb_duel_laser and cmb_duel_rail_gun; on line_fast every tick but one (tick 731, the arrival: x 16/65536 of a pixel
 short). In its pictures the damaged tanks have no health bars and the Plymouth tank is drawn in player 0's blue.
 
-`trace_diff.py` compares any two traces on its own. Fields both sides write are compared; `cmd`/`action` aren't (names
-in one, numbers in the other). `--ignore lights,rng` (on either script) sets known differences aside, to see what's
+`trace_diff.py` compares any two traces on its own. Fields both sides write are compared: each unit's position,
+`cmd`/`action`/`busy`, `dest` and `path` (part by part, or as `path` when only one side has one), weapon, `status` and
+`tiles`, and per tick `fx`, `ents`, `alloc` (without the original's stale ring slots and [head, tail], which the port's
+ring doesn't have) and `reused`. marcelomgoncalves/outpost2's trace writes all of these but `frame`/`anim`; an older
+port build writes only the position, weapon and `lights`, so only those are compared. `--ignore lights,rng` (on either script) sets known differences aside, to see what's
 under them; `--no-pictures` skips the screenshots for a quicker batch. Several scenarios end in a scoreboard, one line
 each.
 

@@ -30,6 +30,11 @@ says which runs change and why.
 
 ## Unreleased
 
+**Added** (MINOR: every existing recording replays identically)
+- `windows/trace_diff.py` compares every trace field both sides write: each unit's `cmd`, `action`, `busy`, `ipx`/`ipy`,
+  `dest`, `path` (part by part, or as `path` when only one side has one) and `tiles`, and per tick `fx`, `ents`, `alloc`
+  (without stale ring slots and the ring's [head, tail]) and `reused`, for marcelomgoncalves/outpost2's fuller trace.
+
 ## 1.3.0 (2026-11-21)
 
 **Contract:** one change to what screenshots show: health bars, under **Changed** (frames with damaged units differ
