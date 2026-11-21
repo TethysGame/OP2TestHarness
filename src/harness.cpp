@@ -5568,8 +5568,9 @@ void Start() {
     // A recording keeps the player's sound and music unless asked (OP2H_SILENT).
     if (!g_record || EnvInt("OP2H_SILENT", 0))
       for (const char* key : { "Music", "Sound" }) WritePrivateProfileStringA("Game", key, "0", ini.c_str());
-    // No health bars on unselected damaged units (OPU's ShowUnitHPBars, on by default), so frames and whole-map
-    // images show the map and its units only; OP2H_INI_ShowUnitHPBars=1 keeps OPU's bars.
+    // No health bars on unselected damaged units (OPU's ShowUnitHPBars, on by default); OP2H_INI_ShowUnitHPBars=1
+    // keeps OPU's bars. OPU has read the setting by now, from the game's own ini, which the launchers set before
+    // starting the game (tools/ini.py set_hp_bars); this keeps the private copy saying the same.
     const std::string hpBars = Env("OP2H_INI_ShowUnitHPBars");
     WritePrivateProfileStringA("Game", "ShowUnitHPBars", hpBars.empty() ? "0" : hpBars.c_str(), ini.c_str());
     // Window geometry comes from here at creation; resizing later would shift the mission's initial view.

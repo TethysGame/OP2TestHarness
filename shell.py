@@ -464,6 +464,7 @@ def session(args, out: Path, w: int, h: int, procs: dict[str, subprocess.Popen])
         env["OP2H_SCRIPT"] = run.win_path(args.script.resolve())
     # The program needs its full Windows path: `explorer /desktop=... Outpost2.exe` silently starts nothing.
     exe = "C:\\" + str((run.GAME_DIR / "Outpost2.exe").relative_to(run.PREFIX / "drive_c")).replace("/", "\\")
+    run.set_hp_bars(env)
 
     events = Events(out / "shell.jsonl")
     driver: list[dict] = []

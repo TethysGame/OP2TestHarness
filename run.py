@@ -23,6 +23,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
+import ini  # noqa: E402
 import prefixes  # noqa: E402
 
 # Harness runs use their own Wine prefix when one exists (prefix-harness/, a copy of prefix/), so they get their own
@@ -35,6 +37,13 @@ except ValueError as e:
     raise SystemExit(f"run.py: {e}") from None
 GAME_DIR = PREFIX / "drive_c" / "GOG Games" / "Outpost 2"
 OPU_DIR = GAME_DIR / "OPU"
+
+
+def set_hp_bars(env: dict) -> None:
+    """ShowUnitHPBars in the harness prefix's outpost2.ini before a launch (tools/ini.py set_hp_bars). The play prefix
+    is left as its player set it, when runs fall back to it."""
+    if PREFIX.resolve() != PLAY_PREFIX.resolve():
+        ini.set_hp_bars(OPU_DIR / "outpost2.ini", env)
 
 
 def sync_missions_from_play_prefix():
@@ -483,6 +492,7 @@ def main() -> int:
             ap.error("--checkpoint saves a mission's scripted run (not a recording or a scenario)")
         env["OP2H_CHECKPOINT"] = args.checkpoint if "/" not in args.checkpoint else win_path(Path(args.checkpoint).resolve())
     env.pop("WAYLAND_DISPLAY", None)  # Make sure Wine uses the X display we picked.
+    set_hp_bars(env)
 
     start = time.monotonic()
     timed_out = False

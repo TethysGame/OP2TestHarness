@@ -31,9 +31,12 @@ says which runs change and why.
 ## Unreleased
 
 **Changed** (MAJOR: screenshots of damaged units change)
-- Mission runs set `ShowUnitHPBars=0` in their private outpost2.ini: health bars only on the selected unit and the
-  one under the mouse, as in the original 1.2, not OPU's bars on every damaged unit. `OP2H_INI_ShowUnitHPBars=1`
-  keeps OPU's.
+- Every launch on OPU 1.4.1 (mission runs, scenarios, shell sessions) sets `ShowUnitHPBars=0` in the game's own
+  `OPU/outpost2.ini` first: health bars only on the selected unit and the one under the mouse, as in the original
+  1.2, not OPU's bars on every damaged unit. OPU reads the setting at startup, before the harness points the game at
+  its private outpost2.ini, so setting it in the private copy alone left OPU's bars on (measured with
+  `hp_bars.json`: the game ini at 1 or 0 changes 7 of its 8 frames; the private copy's value changes none).
+  `OP2H_INI_ShowUnitHPBars=1` keeps OPU's. On Linux the play prefix's ini is never written.
 
 **Added** (MINOR: every existing recording replays identically)
 - `windows/telemetry_diff.py`: compares two `telemetry.jsonl` files field by field (players and their `eco` fields,

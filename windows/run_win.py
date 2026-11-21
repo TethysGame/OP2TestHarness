@@ -136,9 +136,12 @@ def launch(harness_env: dict, out: Path, timeout: float, args: list[str] | None 
     Returns the run's summary: exit code, timeout, wall time, screenshots (converted to PNG), how the game ended (the
     last telemetry line's `end`), suppressed dialogs, the bot line, the quit line and `ok`."""
     start = time.monotonic()
-    cmd = [str(run.GAME_DIR / "Outpost2.exe"), *([] if is_opu13(run.GAME_DIR) else ["/OPU"]), *(args or [])]
-    game = subprocess.Popen(cmd, cwd=run.GAME_DIR,
-                            env=dict(os.environ, **harness_env))
+    opu13 = is_opu13(run.GAME_DIR)
+    env = dict(os.environ, **harness_env)
+    if not opu13:
+        ini.set_hp_bars(run.OPU_DIR / "outpost2.ini", env)
+    cmd = [str(run.GAME_DIR / "Outpost2.exe"), *([] if opu13 else ["/OPU"]), *(args or [])]
+    game = subprocess.Popen(cmd, cwd=run.GAME_DIR, env=env)
     try:
         code, timed_out = game.wait(timeout=timeout), False
     except subprocess.TimeoutExpired:

@@ -946,9 +946,12 @@ three side by side, and `windows/trace_diff.py` compares any two traces (windows
 `OP2H_MISSION`, `InitMod` returns at once and the game behaves normally. Otherwise it:
 
 1. Points the game's settings object (`g_configFile.iniPath_`) at a copy of `outpost2.ini` in the output directory,
-   with music and sound off, `ShowUnitHPBars=0` (1.2's health bars: the selected unit and the one under the mouse;
-   `OP2H_INI_ShowUnitHPBars=1` keeps OPU's bars on every damaged unit) and window geometry set. The game writes its window and desktop size back to the ini while
-   it runs, and this keeps those writes away from the user's settings.
+   with music and sound off and window geometry set. The game writes its window and desktop size back to the ini while
+   it runs, and this keeps those writes away from the user's settings. Health bars are set before that: OPU reads
+   `ShowUnitHPBars` at startup from the game's own `OPU/outpost2.ini`, so every launch on OPU 1.4.1 (`run.py`,
+   `shell.py`, `run_win.py`) writes `ShowUnitHPBars=0` there first: 1.2's health bars, on the selected unit and the
+   one under the mouse. `OP2H_INI_ShowUnitHPBars=1` keeps OPU's bars on every damaged unit. On Linux only the harness
+   prefix's ini is written; runs that fall back to `prefix/` leave the player's setting alone.
 2. Sets `TApp::bShowShell_ = 0`, the same thing the hidden `/noshell` switch does. `TApp::CreateFrames()` then calls
    `GameImpl::LoadDebugMap()` instead of opening the shell. The harness redirects that call (0x486606) to a function
    that fills a `GameStartInfo` (script name, seed, speed, difficulty) and calls `GameImpl::PrepareGame()`, which is

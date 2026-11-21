@@ -25,6 +25,32 @@ def install(text: str) -> str:
     return text
 
 
+def hp_bars(text: str, value: str = "0") -> str:
+    """ShowUnitHPBars=<value> in [Game]."""
+    line = f"ShowUnitHPBars={value}"
+    if re.search(r"(?mi)^ShowUnitHPBars\s*=", text):
+        return re.sub(r"(?mi)^ShowUnitHPBars\s*=[^\n]*", line, text)
+    if not re.search(r"(?mi)^\[Game\]", text):
+        text = "[Game]\n" + text
+    return re.sub(r"(?mi)^\[Game\][^\n]*\n", lambda g: g.group(0) + line + "\n", text, count=1)
+
+
+def set_hp_bars(ini_path: Path, env: dict) -> None:
+    """Before a launch on OPU 1.4.1: ShowUnitHPBars in the game's own OPU/outpost2.ini, 0 (1.2's health bars: the
+    selected unit and the one under the mouse) unless OP2H_INI_ShowUnitHPBars says otherwise. OPU reads it at startup,
+    before the harness points the game at its per-run copy, so only this file decides what frames show."""
+    if not ini_path.exists():
+        return
+    raw = ini_path.read_bytes().decode("latin-1")
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    text = raw.replace("\r\n", "\n")
+    # Any case: Windows' os.environ upper-cases names (the game's own lookup ignores case too).
+    value = next((v for k, v in env.items() if k.upper() == "OP2H_INI_SHOWUNITHPBARS" and v), "0")
+    new = hp_bars(text, value)
+    if new != text:
+        ini_path.write_bytes(new.replace("\n", eol).encode("latin-1"))
+
+
 def uninstall(text: str) -> str:
     text = re.sub(r"(?mi)^Harness\s*=[^\n]*\n?", "", text)
     return re.sub(r"(?mis)^\[Harness\]\n(?:(?!\[)[^\n]*\n?)*", "", text)
