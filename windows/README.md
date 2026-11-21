@@ -13,6 +13,7 @@ that needs; the rest of OP2TestHarness (src/, test/, run.py's scenario translati
 | `run_port.py` | `install` copies a built outpost2-port into the game copy; `run` plays a scenario in its `--harness` mode |
 | `trace_diff.py` | compares two `trace.jsonl` files field by field, tick by tick (MATCH, or each field's first difference) |
 | `telemetry_diff.py` | the same for two `telemetry.jsonl` files: players, their `eco` fields, units by id, beacons |
+| `audio_diff.py` | the same for two `audio.jsonl` files: each tick's sound events, the music, the sound lengths |
 | `gamedata_diff.py` | the same for two `gamedata.json` files: map, cell types, unit types word by word, the `--eco` tables, every tile's cell type |
 | `compare_port.py` | the original vs a port with a `--harness` mode (outpost2-port, marcelomgoncalves/outpost2) and with `--op2rs` op2-rs, on one or more scenarios; pictures side by side (original \| op2-rs \| port) |
 
@@ -132,6 +133,12 @@ the window's frame itself, so `run_port.py` runs it at `--size 1056x800`: its cl
 pixel positions land on the same spot. At tick 1, before anything sets the view, the original's `view` is internal pixel
 0 (file -1024) and the port's 1024, so `view` differs there in every input run (`--ignore view` sets it aside). Not
 modeled in the port: edge and arrow-key scrolling and `hotkeys`.
+
+A scenario with `"audio": true` gets the audio log on both sides, compared with `audio_diff.py`: each tick's `sfx`,
+`savant`, `play` and `msg` events (id, position, the throttle's `pass`), in the order the game asked for them, without
+`at` (an address in Outpost2.exe, which the port doesn't have); the music playlist; the `tables` line's sound lengths
+(the port's has no Savant priorities: its queue is first in, first out). The port runs its Savant queue and message
+throttle on the same virtual clock as the harness, tick * 1000 / 36 ms. The `shot` verb works in the port too.
 
 The port's upstream, [marcelomgoncalves/outpost2](https://github.com/marcelomgoncalves/outpost2), has the same
 `--harness` mode, and its checkout (`C:\Users\Desktop\GITHUB\marcel-outpost2`) is now `run_port.py install`'s

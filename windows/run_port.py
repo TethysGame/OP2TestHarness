@@ -48,7 +48,8 @@ def run_scenario(a) -> int:
     scn = json.loads(scn_path.read_text())
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    for old in [*out.glob("shot_*"), *(out / n for n in ("trace.jsonl", "telemetry.jsonl", "harness.log", "summary.json", "port_stdout.txt"))]:
+    for old in [*out.glob("shot_*"), *(out / n for n in ("trace.jsonl", "telemetry.jsonl", "gamedata.json", "audio.jsonl", "harness.log", "summary.json",
+                                             "port_stdout.txt"))]:
         old.unlink(missing_ok=True)
     ticks, seed = scn.get("ticks", 3000), scn.get("seed", 1)
     script = out / "scenario_script.txt"
@@ -64,6 +65,8 @@ def run_scenario(a) -> int:
            "--size", "1056x800"]
     if scn.get("eco"):
         cmd.append("--eco")
+    if scn.get("audio"):
+        cmd.append("--audio")
     if a.show:
         cmd.append("--show")
     start = time.monotonic()

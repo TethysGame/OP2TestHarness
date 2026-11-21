@@ -39,6 +39,9 @@ says which runs change and why.
 - `windows/telemetry_diff.py` compares input runs' `selected` and `view`. `run_port.py` runs the port at
   `--size 1056x800`, whose client (inside the frame the port draws) is the original's 1032x766, so the input verbs'
   pixel positions land on the same spot.
+- `windows/audio_diff.py`: compares two `audio.jsonl` files tick by tick (each tick's `sfx`, `savant`, `play` and
+  `msg` events without `at`, the music playlist, the sound lengths); `compare_port.py` compares the port's with the
+  original's, and `run_port.py` passes `--audio` for a scenario with `"audio": true`.
 
 ## 1.3.0 (2026-11-21)
 

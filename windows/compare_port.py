@@ -6,9 +6,9 @@
 For each scenario:
 1. the original plays it (run_win.py run), with a screenshot at tick T;
 2. outpost2-port plays it (run_port.py run, its --harness mode), with a screenshot at tick T;
-3. trace_diff.py compares the two traces, telemetry_diff.py the two telemetry files and gamedata_diff.py the two
-   gamedata.json files: MATCH, or the first tick each field differs (port_diff.txt; port_diff.json,
-   port_telemetry_diff.json and port_gamedata_diff.json);
+3. trace_diff.py compares the two traces, telemetry_diff.py the two telemetry files, gamedata_diff.py the two
+   gamedata.json files and audio_diff.py the two audio logs: MATCH, or the first tick each field differs (port_diff.txt;
+   port_diff.json, port_telemetry_diff.json, port_gamedata_diff.json and port_audio_diff.json);
 4. with --op2rs, op2-sim is compared with the original too (op2-inspect compare) and op2-engine draws tick T;
 5. side_by_side.png: original | port (| op2-rs) at tick T.
 With several scenarios it ends with one line per scenario. Outputs go to build\\compare-port\\<scenario>\\ (--out
@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import audio_diff  # noqa: E402
 import compare  # noqa: E402
 import gamedata_diff  # noqa: E402
 import run_port  # noqa: E402
@@ -51,7 +52,8 @@ def one(scn_path: Path, a, out: Path) -> dict:
     lines, parts, match = [], [], True
     for name, tool, src, file in (("trace", trace_diff, "trace.jsonl", "port_diff.json"),
                                   ("telemetry", telemetry_diff, "telemetry.jsonl", "port_telemetry_diff.json"),
-                                  ("gamedata", gamedata_diff, "gamedata.json", "port_gamedata_diff.json")):
+                                  ("gamedata", gamedata_diff, "gamedata.json", "port_gamedata_diff.json"),
+                                  ("audio", audio_diff, "audio.jsonl", "port_audio_diff.json")):
         fa, fb = original / src, port / src
         if not fa.exists() or not fb.exists():
             if fa.exists() != fb.exists():
