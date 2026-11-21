@@ -5,7 +5,7 @@ first differs.
                                       [--ignore FIELDS]
 
 Players are matched by id, units by id (the game's object index), beacons by position. For each player field (`food`,
-`techs`, `eco.powerAvail`...), unit field and the top-level `end`, the report gives the first tick the two disagree and
+`techs`, `eco.powerAvail`...), unit field and the top-level `end` (and, in input runs, `selected` and `view`), the report gives the first tick the two disagree and
 both values there; a unit present in one file and not the other counts as its field `present`. Only ticks both files
 have are compared, and only fields both files write somewhere: the port leaves out what it doesn't model (some `eco`
 fields, `pi`, the units' `raw` and `hive`), and those aren't counted. --ignore takes field names (`cmd`, `eco.recalc`).
@@ -66,6 +66,9 @@ def compare(a_path: Path, b_path: Path, ignore: tuple = ()) -> dict:
         ra, rb = a[t], b[t]
         if "end" not in ignore and ra.get("end") != rb.get("end"):
             note("end", t, ra.get("end"), rb.get("end"))
+        for key in ("selected", "view"):  # input runs: the selection and the view's top-left corner
+            if key not in ignore and key in ra and key in rb and ra[key] != rb[key]:
+                note(key, t, ra[key], rb[key])
         pla = {p["id"]: player_fields(p) for p in ra.get("players", [])}
         plb = {p["id"]: player_fields(p) for p in rb.get("players", [])}
         for i in sorted(set(pla) | set(plb)):

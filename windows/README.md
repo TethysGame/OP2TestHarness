@@ -126,6 +126,13 @@ only for buildings, walls and weapons, and no morale `maxima`; a type's resource
 and walls (elsewhere the original's byte isn't one). A port build without it writes no `gamedata.json`, and that
 comparison is skipped. `start_info.json` is a network game's, which the port doesn't play.
 
+Input runs (scripts with `click`, `drag`, `key`, `select`...) work too: marcelomgoncalves/outpost2's `--harness` turns
+each verb into real input to its UI, and `telemetry_diff.py` compares the `selected` and `view` they add. The port draws
+the window's frame itself, so `run_port.py` runs it at `--size 1056x800`: its client is then the original's 1032x766 and
+pixel positions land on the same spot. At tick 1, before anything sets the view, the original's `view` is internal pixel
+0 (file -1024) and the port's 1024, so `view` differs there in every input run (`--ignore view` sets it aside). Not
+modeled in the port: edge and arrow-key scrolling and `hotkeys`.
+
 The port's upstream, [marcelomgoncalves/outpost2](https://github.com/marcelomgoncalves/outpost2), has the same
 `--harness` mode, and its checkout (`C:\Users\Desktop\GITHUB\marcel-outpost2`) is now `run_port.py install`'s
 default (`--port` for another); `compare_port.py --port-label NAME` names the port in the pictures. On 2026-11-10 (its commit 1ac3673) it matched the original on

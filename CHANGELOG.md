@@ -36,6 +36,9 @@ says which runs change and why.
   (without stale ring slots and the ring's [head, tail]) and `reused`, for marcelomgoncalves/outpost2's fuller trace.
 - `windows/gamedata_diff.py`: compares two `gamedata.json` files field by field (map, cell types, unit types and their
   stats words, the `--eco` tables, every tile's cell type); `compare_port.py` compares the port's with the original's.
+- `windows/telemetry_diff.py` compares input runs' `selected` and `view`. `run_port.py` runs the port at
+  `--size 1056x800`, whose client (inside the frame the port draws) is the original's 1032x766, so the input verbs'
+  pixel positions land on the same spot.
 
 ## 1.3.0 (2026-11-21)
 

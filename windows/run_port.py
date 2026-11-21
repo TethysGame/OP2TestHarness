@@ -58,7 +58,10 @@ def run_scenario(a) -> int:
     cmd = [str(exe), "--harness", "--script", str(script), "--out", str(out), "--map", scn.get("map", "cm01.map"),
            "--techtree", scn.get("techtree", "multitek.txt"), "--ticks", str(ticks), "--seed", str(seed),
            "--trace-every", str(scn.get("traceEvery", 1)), "--shot-every", str(a.shot_every),
-           "--telemetry-every", str(scn.get("telemetryEvery", 100))]
+           "--telemetry-every", str(scn.get("telemetryEvery", 100)),
+           # The port draws the window's frame itself (12 px sides and bottom, a 22 px title): 1056x800 gives the
+           # 1032x766 client the original has at the harness's 1024x768, so input verbs' pixels land on the same spot.
+           "--size", "1056x800"]
     if scn.get("eco"):
         cmd.append("--eco")
     if a.show:
