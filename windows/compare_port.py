@@ -6,8 +6,9 @@
 For each scenario:
 1. the original plays it (run_win.py run), with a screenshot at tick T;
 2. outpost2-port plays it (run_port.py run, its --harness mode), with a screenshot at tick T;
-3. trace_diff.py compares the two traces and telemetry_diff.py the two telemetry files: MATCH, or the first tick each
-   field differs (port_diff.txt; port_diff.json and port_telemetry_diff.json);
+3. trace_diff.py compares the two traces, telemetry_diff.py the two telemetry files and gamedata_diff.py the two
+   gamedata.json files: MATCH, or the first tick each field differs (port_diff.txt; port_diff.json,
+   port_telemetry_diff.json and port_gamedata_diff.json);
 4. with --op2rs, op2-sim is compared with the original too (op2-inspect compare) and op2-engine draws tick T;
 5. side_by_side.png: original | port (| op2-rs) at tick T.
 With several scenarios it ends with one line per scenario. Outputs go to build\\compare-port\\<scenario>\\ (--out
@@ -20,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import compare  # noqa: E402
+import gamedata_diff  # noqa: E402
 import run_port  # noqa: E402
 import run_win  # noqa: E402
 import telemetry_diff  # noqa: E402
@@ -44,11 +46,13 @@ def one(scn_path: Path, a, out: Path) -> dict:
                                                 timeout=600, show=False)):
         return {"scenario": scn_path.stem, "line": "the port's run failed (port\\harness.log, port_stdout.txt)"}
 
-    # The trace (a scenario may have none: telemetry only) and the telemetry, each when both sides wrote it.
+    # The trace (a scenario may have none: telemetry only), the telemetry and the game data, each when both sides
+    # wrote it.
     lines, parts, match = [], [], True
-    for name, tool, file in (("trace", trace_diff, "port_diff.json"),
-                             ("telemetry", telemetry_diff, "port_telemetry_diff.json")):
-        fa, fb = original / f"{name}.jsonl", port / f"{name}.jsonl"
+    for name, tool, src, file in (("trace", trace_diff, "trace.jsonl", "port_diff.json"),
+                                  ("telemetry", telemetry_diff, "telemetry.jsonl", "port_telemetry_diff.json"),
+                                  ("gamedata", gamedata_diff, "gamedata.json", "port_gamedata_diff.json")):
+        fa, fb = original / src, port / src
         if not fa.exists() or not fb.exists():
             if fa.exists() != fb.exists():
                 parts.append(f"{name}: only the {'original' if fa.exists() else 'port'} wrote one")
@@ -57,12 +61,13 @@ def one(scn_path: Path, a, out: Path) -> dict:
         report = tool.compare(fa, fb, a.ignore)
         (out / file).write_text(newline="\n", data=json.dumps(report, indent=1) + "\n")
         lines += [f"{name} {tool.summary_line(report)}"] + [
+            gamedata_diff.detail(k, v) if name == "gamedata" else
             f"  {k}: tick {v['tick']}: original {json.dumps(v['a'])} / port {json.dumps(v['b'])}"
             for k, v in report["first_differences"].items()]
         parts.append(f"{name} {tool.summary_line(report).split(':')[0]}")
         match = match and report["match"]
     if not parts:
-        parts, match = ["no trace or telemetry to compare"], False
+        parts, match = ["no trace, telemetry or game data to compare"], False
     (out / "port_diff.txt").write_text(newline="\n", data="\n".join(lines) + "\n")
     print("port vs original: " + "\n".join(lines or parts))
     result = {"scenario": scn_path.stem, "line": "port " + ", ".join(parts), "match": match}
@@ -101,7 +106,7 @@ def main() -> int:
                     help="also compare op2-rs (op2-sim and op2-engine) from this checkout (default: the usual one)")
     ap.add_argument("--no-pictures", action="store_true", help="traces only: no screenshots or side by side")
     ap.add_argument("--ignore", default="", metavar="FIELDS",
-                    help="trace and telemetry fields left out of the port's comparison, comma separated (e.g. lights,rng,cmd)")
+                    help="trace, telemetry and gamedata fields left out of the port's comparison, comma separated (e.g. lights,rng,cmd,cells)")
     ap.add_argument("--game", type=Path, default=run_win.DEFAULT_GAME, help="the private game copy")
     ap.add_argument("--source", type=Path, default=run_win.DEFAULT_SOURCE, help="the game install op2-rs reads data from")
     ap.add_argument("--port-label", default="outpost2-port",

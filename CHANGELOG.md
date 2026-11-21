@@ -34,6 +34,8 @@ says which runs change and why.
 - `windows/trace_diff.py` compares every trace field both sides write: each unit's `cmd`, `action`, `busy`, `ipx`/`ipy`,
   `dest`, `path` (part by part, or as `path` when only one side has one) and `tiles`, and per tick `fx`, `ents`, `alloc`
   (without stale ring slots and the ring's [head, tail]) and `reused`, for marcelomgoncalves/outpost2's fuller trace.
+- `windows/gamedata_diff.py`: compares two `gamedata.json` files field by field (map, cell types, unit types and their
+  stats words, the `--eco` tables, every tile's cell type); `compare_port.py` compares the port's with the original's.
 
 ## 1.3.0 (2026-11-21)
 

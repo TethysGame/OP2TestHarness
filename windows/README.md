@@ -13,6 +13,7 @@ that needs; the rest of OP2TestHarness (src/, test/, run.py's scenario translati
 | `run_port.py` | `install` copies a built outpost2-port into the game copy; `run` plays a scenario in its `--harness` mode |
 | `trace_diff.py` | compares two `trace.jsonl` files field by field, tick by tick (MATCH, or each field's first difference) |
 | `telemetry_diff.py` | the same for two `telemetry.jsonl` files: players, their `eco` fields, units by id, beacons |
+| `gamedata_diff.py` | the same for two `gamedata.json` files: map, cell types, unit types word by word, the `--eco` tables, every tile's cell type |
 | `compare_port.py` | the original vs a port with a `--harness` mode (outpost2-port, marcelomgoncalves/outpost2) and with `--op2rs` op2-rs, on one or more scenarios; pictures side by side (original \| op2-rs \| port) |
 
 ## Requirements
@@ -117,6 +118,13 @@ The port writes telemetry from its 2026-11-20 `--harness` on (`--telemetry-every
 scenario's `telemetryEvery` and `eco`): the original's fields, except those the port doesn't model, which it leaves out
 (`eco`'s `maxFood`, `morale08`, `morale24` and `rcc`; `pi`; the units' `raw` and `hive`). Only fields both sides
 write are compared. An older port build stops at the unknown option `--telemetry-every`.
+
+`gamedata.json` (the game's data as loaded, at the first cycle) is compared too, with `gamedata_diff.py`: the map's
+geometry, each cell type, each unit type field by field (its 17 stats words one by one), with `--eco` the morale, mine
+and tech tables, and the cell type of every tile. marcelomgoncalves/outpost2's has no cell type names, `vehicleFlags`
+only for buildings, walls and weapons, and no morale `maxima`; a type's resource priority is compared only on buildings
+and walls (elsewhere the original's byte isn't one). A port build without it writes no `gamedata.json`, and that
+comparison is skipped. `start_info.json` is a network game's, which the port doesn't play.
 
 The port's upstream, [marcelomgoncalves/outpost2](https://github.com/marcelomgoncalves/outpost2), has the same
 `--harness` mode, and its checkout (`C:\Users\Desktop\GITHUB\marcel-outpost2`) is now `run_port.py install`'s
