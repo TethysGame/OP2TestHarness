@@ -40,6 +40,39 @@ import run  # noqa: E402
 import ini  # noqa: E402
 
 
+MISSION_EVERY = 100  # a mission's trace and telemetry interval: every tick would be gigabytes over a long game
+
+
+def load_recipe(path: Path) -> tuple[dict, str]:
+    """A scenario JSON, or a mission script (op2-rs's oracle/missions/*.txt), as (settings, script text).
+    A mission script's header gives the DLL (`run.sh --mission NAME`), the seed and difficulty ("difficulty D, seed
+    S") and the length: `--ticks N`, or with `--ticks 0` the tick its session ended at ("at tick N"). Without a
+    header the DLL is the file name up to its first `_` and the run goes 100 ticks past the last line. Missions get a
+    trace and telemetry every 100 ticks, the economy (`--eco`) and the audio log."""
+    import re
+    if path.suffix.lower() == ".json":
+        scn = json.loads(path.read_text())
+        return scn, run.scenario_script(scn)
+    text = path.read_text(errors="replace")
+    head = "\n".join(l for l in text.splitlines() if l.startswith("#"))
+    m = re.search(r"--mission (\S+)", head)
+    mission = m.group(1) if m else path.stem.split("_")[0] + ".dll"
+    m = re.search(r"--ticks (\d+)", head)
+    ticks = int(m.group(1)) if m else 0
+    if not ticks:
+        m = re.search(r"at tick (\d+)", head)
+        ticks = int(m.group(1)) if m else 0
+    if not ticks:
+        last = [int(l.split()[0]) for l in text.splitlines() if l.strip() and l.split()[0].isdigit()]
+        ticks = (max(last) if last else 0) + 100
+    m = re.search(r"difficulty (\d)", head)
+    difficulty = int(m.group(1)) if m else 1
+    m = re.search(r"seed (\d+)", head)
+    seed = int(m.group(1)) if m else 1
+    return ({"mission": mission, "ticks": ticks, "seed": seed, "difficulty": difficulty, "traceEvery": MISSION_EVERY,
+             "telemetryEvery": MISSION_EVERY, "eco": True, "audio": True}, text)
+
+
 def is_opu13(game: Path) -> bool:
     """OPU 1.3.x (OPU's patched Outpost2.exe 1.3.0.x): no OPU folder; op2ext loads modules from the game folder's
     outpost2.ini (LoadAddons) and missions from the game folder. Otherwise OPU 1.4.1 on GOG 1.2.0.7."""
@@ -99,18 +132,21 @@ def to_png(out: Path) -> int:
 def run_scenario(a) -> int:
     if not (run.OPU_DIR / "Harness" / "harness.dll").exists():
         sys.exit(f"run: no harness in {run.GAME_DIR}: run `run_win.py setup` first")
-    scn = json.loads(a.scenario.read_text())
+    scn, script_text = load_recipe(a.scenario)
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     for old in [*out.glob("shot_*"), *(out / n for n in ("trace.jsonl", "telemetry.jsonl", "harness.log",
-                                                        "gamedata.json", "summary.json"))]:
+                                                        "gamedata.json", "audio.jsonl", "summary.json"))]:
         old.unlink(missing_ok=True)
     ticks, seed = scn.get("ticks", 3000), scn.get("seed", 1)
-    mission = run.scenario_mission(scn.get("map", "cm01.map"), scn.get("techtree", "multitek.txt"))
-    if is_opu13(run.GAME_DIR):
-        mission = mission.removeprefix("OPU\\")  # Harness\zs_*.dll, relative to the game folder.
+    if "mission" in scn:  # a mission DLL, found where the game finds it
+        mission = scn["mission"]
+    else:
+        mission = run.scenario_mission(scn.get("map", "cm01.map"), scn.get("techtree", "multitek.txt"))
+        if is_opu13(run.GAME_DIR):
+            mission = mission.removeprefix("OPU\\")  # Harness\zs_*.dll, relative to the game folder.
     script = out / "scenario_script.txt"
-    script.write_text(newline="\n", data=run.scenario_script(scn))
+    script.write_text(newline="\n", data=script_text)
     (out / "scenario.json").write_text(newline="\n",
                                        data=json.dumps(dict(scn, seed=seed, ticks=ticks), indent=1) + "\n")
     env = dict(OP2H_MISSION=mission, OP2H_OUT=str(out), OP2H_SCRIPT=str(script),

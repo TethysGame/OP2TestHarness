@@ -45,7 +45,7 @@ def run_scenario(a) -> int:
     if not exe.exists():
         sys.exit(f"run: no {PORT_EXE} in {game}: run `run_port.py install` first")
     scn_path = a.scenario.resolve()
-    scn = json.loads(scn_path.read_text())
+    scn, script_text = run_win.load_recipe(scn_path)
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     for old in [*out.glob("shot_*"), *(out / n for n in ("trace.jsonl", "telemetry.jsonl", "gamedata.json", "audio.jsonl", "harness.log", "summary.json",
@@ -53,11 +53,12 @@ def run_scenario(a) -> int:
         old.unlink(missing_ok=True)
     ticks, seed = scn.get("ticks", 3000), scn.get("seed", 1)
     script = out / "scenario_script.txt"
-    script.write_text(newline="\n", data=run_win.run.scenario_script(scn))
+    script.write_text(newline="\n", data=script_text)
     (out / "scenario.json").write_text(newline="\n",
                                        data=json.dumps(dict(scn, seed=seed, ticks=ticks), indent=1) + "\n")
-    cmd = [str(exe), "--harness", "--script", str(script), "--out", str(out), "--map", scn.get("map", "cm01.map"),
-           "--techtree", scn.get("techtree", "multitek.txt"), "--ticks", str(ticks), "--seed", str(seed),
+    start = (["--mission", scn["mission"], "--difficulty", str(scn.get("difficulty", 1))] if "mission" in scn else
+             ["--map", scn.get("map", "cm01.map"), "--techtree", scn.get("techtree", "multitek.txt")])
+    cmd = [str(exe), "--harness", "--script", str(script), "--out", str(out), *start, "--ticks", str(ticks), "--seed", str(seed),
            "--trace-every", str(scn.get("traceEvery", 1)), "--shot-every", str(a.shot_every),
            "--telemetry-every", str(scn.get("telemetryEvery", 100)),
            # The port draws the window's frame itself (12 px sides and bottom, a 22 px title): 1056x800 gives the

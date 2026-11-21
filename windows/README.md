@@ -115,6 +115,12 @@ python -I windows\compare_port.py %ORACLE%\scenarios\line_fast.json %ORACLE%\sce
 each field differs, for the trace and for the telemetry), `side_by_side.png` (original | op2-rs | port) and, with
 `--op2rs`, `sim_compare.txt`. A scenario with no trace (telemetry only) is compared on its telemetry.
 
+A mission script (op2-rs's `oracle/missions/*.txt`, e.g. the colony games `CES1_play.txt`) works in place of a
+scenario: its header's `run.sh --mission NAME` line gives the DLL, "difficulty D, seed S" the start, and `--ticks N`
+(or, with `--ticks 0`, "at tick N") the length; without a header the DLL is the file name up to its first `_`. Both
+sides then write a trace and telemetry every 100 ticks, `--eco` and the audio log. The DLL must be where the game finds
+it (on OPU 1.3.6 the game folder: the five original colony games are there; OPU's add-on missions are not).
+
 The port writes telemetry from its 2026-11-20 `--harness` on (`--telemetry-every N`, `--eco`; `run_port.py` passes the
 scenario's `telemetryEvery` and `eco`): the original's fields, except those the port doesn't model, which it leaves out
 (`eco`'s `maxFood`, `morale08`, `morale24` and `rcc`; `pi`; the units' `raw` and `hive`). Only fields both sides

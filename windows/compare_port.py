@@ -32,7 +32,7 @@ ROOT = run_win.ROOT
 
 
 def one(scn_path: Path, a, out: Path) -> dict:
-    scn = json.loads(scn_path.read_text())
+    scn, _ = run_win.load_recipe(scn_path)
     tick = a.tick or max(5, scn.get("ticks", 3000) // 2)
     shot_every = 0 if a.no_pictures else tick
     print(f"== {scn_path.stem}: {scn.get('ticks', 3000)} ticks" + ("" if a.no_pictures else f", pictures at tick {tick}"))
@@ -40,11 +40,11 @@ def one(scn_path: Path, a, out: Path) -> dict:
     original = out / "original"
     run_win.use_game(a.game.resolve())
     if run_win.run_scenario(argparse.Namespace(scenario=scn_path, out=original, shot_every=shot_every, no_turbo=False,
-                                               timeout=600)):
+                                               timeout=3600 if "mission" in scn else 600)):
         return {"scenario": scn_path.stem, "line": "the original's run failed (original\\harness.log)"}
     port = out / "port"
     if run_port.run_scenario(argparse.Namespace(scenario=scn_path, out=port, game=a.game, shot_every=shot_every,
-                                                timeout=600, show=False)):
+                                                timeout=3600 if "mission" in scn else 600, show=False)):
         return {"scenario": scn_path.stem, "line": "the port's run failed (port\\harness.log, port_stdout.txt)"}
 
     # The trace (a scenario may have none: telemetry only), the telemetry and the game data, each when both sides

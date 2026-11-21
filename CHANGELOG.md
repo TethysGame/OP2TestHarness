@@ -42,6 +42,11 @@ says which runs change and why.
 - `windows/audio_diff.py`: compares two `audio.jsonl` files tick by tick (each tick's `sfx`, `savant`, `play` and
   `msg` events without `at`, the music playlist, the sound lengths); `compare_port.py` compares the port's with the
   original's, and `run_port.py` passes `--audio` for a scenario with `"audio": true`.
+- `windows/run_win.py run`, `run_port.py run` and `compare_port.py` take a mission script (op2-rs's
+  `oracle/missions/*.txt`) as well as scenario JSON: the mission DLL, seed and difficulty come from its header, and
+  the length from `--ticks N` or, with `--ticks 0`, the tick its session ended at. Missions get a trace and telemetry
+  every 100 ticks, the economy and the audio log. The port plays them with `--mission`/`--difficulty`
+  (marcelomgoncalves/outpost2 5.60).
 
 ## 1.3.0 (2026-11-21)
 
