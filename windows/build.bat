@@ -27,7 +27,13 @@ cd /d "%ROOT%\build\win"
 set FLAGS=/nologo /LD /O2 /std:c++20 /EHsc /MT /W1 /utf-8 /I"%ROOT%\vendor\include" /I"%ROOT%\windows" /FImsvc_compat.h /Brepro /Foobj\
 set LIBS=user32.lib gdi32.lib winmm.lib ws2_32.lib
 set FAILED=
-call :build harness "%ROOT%\src\harness.cpp"
+rem harness.dll's version resource (src\harness.rc): the version from VERSION, as "1.3.0" and 1,3,0,0.
+set /p VERSION=<"%ROOT%\VERSION"
+> version.h echo #define OP2H_VERSION_STR "%VERSION%"
+>> version.h echo #define OP2H_VERSION_NUM %VERSION:.=,%,0
+rc /nologo /I. /fo obj\harness.res "%ROOT%\src\harness.rc" > harness_rc.log 2>&1
+if errorlevel 1 (echo build: harness.rc failed, see build\win\harness_rc.log & exit /b 1)
+call :build harness "%ROOT%\src\harness.cpp" obj\harness.res
 call :build zScenario "%ROOT%\test\Scenario.cpp"
 call :build zHarnessEnd "%ROOT%\test\EndTest.cpp"
 for %%B in (sample easter cursor hpblink hitmask los edge) do call :build %%B_bot "%ROOT%\bots\%%B_bot.cpp"
@@ -36,6 +42,6 @@ echo build: 10 DLLs in build\win (harness, zScenario, zHarnessEnd and 7 bots)
 exit /b 0
 
 :build
-cl %FLAGS% %2 /Fe:%1.dll /link /Brepro %LIBS% > %1.log 2>&1
+cl %FLAGS% %2 %3 /Fe:%1.dll /link /Brepro %LIBS% > %1.log 2>&1
 if errorlevel 1 (echo build: %1.dll failed, see build\win\%1.log & set FAILED=%FAILED% %1)
 exit /b 0

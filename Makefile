@@ -8,6 +8,7 @@
 # mission used by `run.sh --scenario` (build/zScenario.dll, installed next to harness.dll, not in OPU/maps).
 
 CXX      := i686-w64-mingw32-g++
+WINDRES  := i686-w64-mingw32-windres
 # Install into the prefix run.py runs in (prefixes.py): OP2_HARNESS_PREFIX when set (an absolute path: run.py would
 # read a relative one from the current directory, this file from this folder), else ../prefix-harness (a copy of your
 # Wine prefix beside this folder). ../prefix is taken to be the prefix you play from: install and uninstall refuse it,
@@ -31,9 +32,18 @@ LDFLAGS  := -shared -static -static-libgcc -static-libstdc++ -s -Wl,--kill-at -W
 
 all: build/harness.dll build/sample_bot.dll build/easter_bot.dll build/cursor_bot.dll build/hpblink_bot.dll build/hitmask_bot.dll build/los_bot.dll build/edge_bot.dll build/zHarnessEnd.dll build/zScenario.dll
 
-build/harness.dll: src/harness.cpp src/mingw_compat.h
+build/harness.dll: src/harness.cpp src/mingw_compat.h build/harness.res.o
 	@mkdir -p build
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< build/harness.res.o $(LDFLAGS)
+
+# harness.dll's version resource (src/harness.rc): the version from VERSION, as "1.3.0" and 1,3,0,0.
+build/version.h: VERSION
+	@mkdir -p build
+	v=$$(tr -d '[:space:]' < VERSION); printf '#define OP2H_VERSION_STR "%s"\n#define OP2H_VERSION_NUM %s,0\n' \
+	  "$$v" "$$(echo "$$v" | tr . ,)" > $@
+
+build/harness.res.o: src/harness.rc build/version.h
+	$(WINDRES) -I build -O coff -o $@ $<
 
 build/%.dll: bots/%.cpp src/mingw_compat.h
 	@mkdir -p build

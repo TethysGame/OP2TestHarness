@@ -236,7 +236,7 @@ game: `selftest` and `make check` need the game's files, which stay off CI, so t
 
 ## 10. Project identification
 
-- **Name:** OP2TestHarness (Outpost 2 Test Harness), version 1.0.0.
+- **Name:** OP2TestHarness (Outpost 2 Test Harness), version 1.3.0.
 - **Repository:** github.com/leviathan400/OP2TestHarness. Origin: gitlab.com/bufke/op2-rs, `harness/`, with its
   history (PROVENANCE.md).
 - **Authors:** David Burke and op2-rs contributors (the harness); Leviathan (leviathan400), the Windows additions.

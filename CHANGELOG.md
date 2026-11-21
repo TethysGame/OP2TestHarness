@@ -30,7 +30,13 @@ says which runs change and why.
 
 ## Unreleased
 
-**Changed** (MAJOR: screenshots of damaged units change)
+## 1.3.0 (2026-11-21)
+
+**Contract:** one change to what screenshots show: health bars, under **Changed** (frames with damaged units differ
+from 1.0.0's; telemetry, traces and every other output field are unchanged). The rest are additions that leave every
+existing recording replaying identically.
+
+**Changed** (screenshots of damaged units change)
 - Every launch on OPU 1.4.1 (mission runs, scenarios, shell sessions) sets `ShowUnitHPBars=0` in the game's own
   `OPU/outpost2.ini` first: health bars only on the selected unit and the one under the mouse, as in the original
   1.2, not OPU's bars on every damaged unit. OPU reads the setting at startup, before the harness points the game at
@@ -39,6 +45,8 @@ says which runs change and why.
   `OP2H_INI_ShowUnitHPBars=1` keeps OPU's. On Linux the play prefix's ini is never written.
 
 **Added** (MINOR: every existing recording replays identically)
+- `harness.dll` has a version resource: its file version (from `VERSION`) and the description "OP2TestHarness",
+  shown in Explorer's Details tab (`src/harness.rc`; `make` builds it with windres, `build.bat` with rc).
 - `windows/telemetry_diff.py`: compares two `telemetry.jsonl` files field by field (players and their `eco` fields,
   units by id, beacons). `compare_port.py` compares the port's telemetry with the original's as well, and a scenario
   with no trace on its telemetry alone. `run_port.py` passes the scenario's `telemetryEvery` and `eco`, and installs
