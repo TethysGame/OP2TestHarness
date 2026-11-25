@@ -182,7 +182,7 @@ identical bytes.
 
 No services. Built locally (`windows\build.bat`, or `make` on Linux). "Installing" means copying the DLLs into a
 game's `OPU/Harness/` and adding one line to its `OPU/outpost2.ini`; on Windows that is always a private copy of the
-game. Source is on GitHub (github.com/leviathan400/OP2TestHarness). CI (GitHub Actions, `.github/workflows/build.yml`)
+game. Source is on GitHub (github.com/TethysGame/OP2TestHarness). CI (GitHub Actions, `.github/workflows/build.yml`)
 builds the DLLs with MinGW on Ubuntu and MSVC on Windows on every push, checks each build is reproducible and packages
 it; a `vX.Y.Z` tag publishes a GitHub release with both packages (the first: v1.0.0, 2026-11-10). CI never runs the
 game: `selftest` and `make check` need the game's files, which stay off CI, so they run locally before a tag.
@@ -236,8 +236,8 @@ game: `selftest` and `make check` need the game's files, which stay off CI, so t
 
 ## 10. Project identification
 
-- **Name:** OP2TestHarness (Outpost 2 Test Harness), version 1.3.0.
-- **Repository:** github.com/leviathan400/OP2TestHarness. Origin: gitlab.com/bufke/op2-rs, `harness/`, with its
+- **Name:** OP2TestHarness (Outpost 2 Test Harness), version 1.3.5.
+- **Repository:** github.com/TethysGame/OP2TestHarness. Origin: gitlab.com/bufke/op2-rs, `harness/`, with its
   history (PROVENANCE.md).
 - **Authors:** David Burke and op2-rs contributors (the harness); Leviathan (leviathan400), the Windows additions.
 - **Last updated:** 2026-11-10.

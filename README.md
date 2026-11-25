@@ -12,10 +12,10 @@ It was written for [op2-rs](https://gitlab.com/bufke/op2-rs), a reimplementation
 recipes in its own simulation and compares every field, tick by tick ("Comparing with op2-rs"). It works for any
 reimplementation or tool that can read the outputs. ARCHITECTURE.md has the design, PROVENANCE.md the origin.
 
-**Version:** 1.3.0 (`VERSION`). What other projects' recordings rely on (options, script verbs, unit names, output
+**Version:** 1.3.5 (`VERSION`). What other projects' recordings rely on (options, script verbs, unit names, output
 fields, the scenario format) changes only with a version bump; CHANGELOG.md has the rules and the history.
 
-**Releases:** https://github.com/leviathan400/OP2TestHarness/releases. Each has two packages,
+**Releases:** https://github.com/TethysGame/OP2TestHarness/releases. Each has two packages,
 `OP2TestHarness-<VERSION>-mingw.zip` (built with `make`, as op2-rs's recorded runs were) and `-msvc.zip` (built with
 `windows\build.bat`), which behave identically. Each holds the ten DLLs, the Python driver, the sources and
 `SHA256SUMS`, and comes with a `.sha256`. CI (GitHub Actions) builds both on every push and checks each is reproducible.

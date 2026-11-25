@@ -28,7 +28,11 @@ Every release notes its contract changes, if any, under **Contract**. A release 
 `harness.dll` replays op2-rs's recorded runs identically (op2-rs's `make accuracy`, 0 failures) unless its changelog
 says which runs change and why.
 
-## Unreleased
+## 1.3.5 (2026-11-25)
+
+**Contract:** additions only; every existing recording replays identically. Under Wine nothing changes. On native
+Windows the harness now holds 0x11000000 from start-up (**Fixed**), so heap pointers in the raw bytes of Windows runs
+(`--trace-raw`, telemetry's `raw`) move; the other output fields don't.
 
 **Added** (MINOR: every existing recording replays identically)
 - `windows/trace_diff.py` compares every trace field both sides write: each unit's `cmd`, `action`, `busy`, `ipx`/`ipy`,
