@@ -59,6 +59,15 @@ def main() -> int:
     def fail(*_):
         raise RuntimeError("boom")
 
+    def damaged(plain, zst):  # A .tmp that doesn't decode: compression.zstd.ZstdError, or another plain Exception.
+        zst.write_bytes(b"\x28\xb5\x2f\xfd not a zstd frame")
+        try:
+            from compression import zstd
+        except ImportError:
+            raise Exception("undecodable") from None
+        with zstd.open(zst, "rb") as f:
+            return f.read()
+
     real = tracezstd._with_module, tracezstd._with_cli
     try:
         import compression.zstd  # noqa: F401
@@ -71,6 +80,7 @@ def main() -> int:
         print("zstd command: skipped (not installed)")
     case("read-back differs", (corrupt, fail), False)
     case("no backend", (no_module, fail), False)
+    case("read-back doesn't decode", (damaged, fail), False)
     with tempfile.TemporaryDirectory() as d:
         assert tracezstd.compress_trace(Path(d)) is False and not list(Path(d).iterdir())
     print("no trace.jsonl: OK")

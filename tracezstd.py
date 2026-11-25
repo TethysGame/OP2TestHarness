@@ -60,7 +60,7 @@ def compress_trace(out: Path) -> bool:
         tmp.replace(zst)
         plain.unlink()
         return True
-    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+    except Exception as e:  # compression.zstd.ZstdError, for one, derives from Exception alone.
         print(f"warning: --trace-zstd: keeping {plain.name}: {e}", file=sys.stderr)
         tmp.unlink(missing_ok=True)
         return False
