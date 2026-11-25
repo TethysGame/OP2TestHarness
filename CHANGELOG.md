@@ -49,6 +49,20 @@ says which runs change and why.
   (marcelomgoncalves/outpost2 5.60).
 - `run.py --trace-zstd`: when the run ends, `trace.jsonl` becomes `trace.jsonl.zst` (zstd level 3, same content, verified
   by reading it back before the plain file is removed). Off by default; without it nothing changes.
+- `OP2H_DESKTOP=1`: the harness leaves the desktop alone (doesn't move the mouse pointer or bring the game to the
+  front). `windows/run_win.py` sets it and starts the game hidden, or shown without taking focus when screenshots, a bot
+  or the new `--show` need the window drawn.
+- `windows/run_win.py mission DLL OUT_DIR`: plays a mission DLL on Windows (`--ticks`, `--players`,
+  `--telemetry-every`, `--shot-every`, `--no-turbo`, `--show`).
+- `summary.json` says which platform the game ran on: `"platform": "wine"` (run.py) or `"windows"`
+  (windows/run_win.py), so a native run can't be taken for a Wine reference by accident.
+
+**Fixed**
+- Native Windows: the OfficialDemos cde1, cdp1 and ml4_dm1 crashed at load (0xC0000005). They lack relocations and
+  must load at 0x11000000, which Windows could give to one of the game's allocations first. On Windows (not under
+  Wine) the harness now reserves that address at startup, releases it when OPU loads a DLL linked there, and takes it
+  again when that DLL is unloaded. Wine runs are unchanged; on Windows, heap pointers in telemetry's `raw` bytes move.
+- The `-Wmissing-braces` warning in `src/harness.cpp` (MinGW).
 
 ## 1.3.0 (2026-11-21)
 
