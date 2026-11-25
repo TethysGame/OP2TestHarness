@@ -32,6 +32,11 @@ python -I windows\run_win.py run %ORACLE%\scenarios\line_fast.json build\runs\li
 python -I windows\compare.py %ORACLE%\scenarios\cmb_duel_laser.json --tick 200   :: the original vs op2-rs
 ```
 
+![The self-test and a scenario run in PowerShell](images/windows-demo.png)
+
+The self-test, then `cmb_duel_laser` (two laser tanks fighting) played in the original game: 420 ticks in under a
+second, with its `summary.json` shown through `ConvertFrom-Json | Format-List`.
+
 **Linux** (Wine + Xvfb, the full option set below):
 
 ```sh
