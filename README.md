@@ -37,6 +37,11 @@ python -I windows\compare.py %ORACLE%\scenarios\cmb_duel_laser.json --tick 200  
 The self-test, then `cmb_duel_laser` (two laser tanks fighting) played in the original game: 420 ticks in under a
 second, with its `summary.json` shown through `ConvertFrom-Json | Format-List`.
 
+![cmb_duel_laser at tick 45: the two tanks trading laser fire](images/cmb_duel_laser.png)
+
+A screenshot the harness took inside the game (`--shot-every`): tick 45 of `cmb_duel_laser`, the two tanks trading
+laser fire.
+
 **Linux** (Wine + Xvfb, the full option set below):
 
 ```sh
