@@ -170,7 +170,8 @@ def run_scenario(a) -> int:
                OP2H_TURBO="0" if a.no_turbo else "1", OP2H_SPEED="10", OP2H_WIDTH="1024", OP2H_HEIGHT="768")
     if getattr(a, "bot", None):
         env["OP2H_BOT"] = str(a.bot.resolve())
-    summary = launch(env, out, a.timeout, shown=a.show or a.shot_every > 0 or bool(a.bot))
+    summary = launch(env, out, a.timeout,
+                     shown=getattr(a, "show", False) or a.shot_every > 0 or bool(getattr(a, "bot", None)))
     summary = {"scenario": str(a.scenario), "mission": mission, **summary}
     (out / "summary.json").write_text(newline="\n", data=json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary))
