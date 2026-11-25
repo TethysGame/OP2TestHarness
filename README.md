@@ -1,5 +1,7 @@
 # OP2TestHarness - Outpost 2 Test Harness
 
+[![build](https://github.com/TethysGame/OP2TestHarness/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/TethysGame/OP2TestHarness/actions/workflows/build.yml)
+
 OP2TestHarness turns the original Outpost 2: Divided Destiny into a measuring instrument. A DLL loaded into the real
 game (`harness.dll`, an op2ext module) plays a mission or a scenario unattended: no shell or clicking, the game speed
 uncapped, scripted orders at given ticks, a fixed seed. It writes what happened as files (unit state every tick as
